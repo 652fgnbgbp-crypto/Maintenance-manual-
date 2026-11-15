@@ -67,6 +67,9 @@ def test_ingest_metadata_search_and_highlight(app_env):
     assert len(found["P86"]) == 1          # wire-run prefix matches P86B12
     assert len(found["MASTER BATTERY SWITCH"]) == 1
     assert found["ZZ99"] == []
+    # codes one character apart are different wires/pins and must not match each other
+    near = highlight.locate_terms(doc_id, 1, ["P86A12", "P80B20"])
+    assert near == {"P86A12": [], "P80B20": []}
     box = found["K45"][0]
     assert 0 < box["x"] < 1 and 0 < box["y"] < 1
 

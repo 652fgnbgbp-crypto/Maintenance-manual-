@@ -7,7 +7,7 @@ import re
 
 from . import ingest
 
-_CONFUSABLE = str.maketrans({"O": "0", "Q": "0", "D": "0", "I": "1", "L": "1", "|": "1", "S": "5", "B": "8", "Z": "2"})
+_CONFUSABLE = str.maketrans({"O": "0", "Q": "0", "D": "0", "I": "1", "L": "1", "|": "1", "S": "5", "B": "8", "Z": "2", "G": "6"})
 WIRE_SUFFIX = re.compile(r"^[A-Z]{1,2}\d{1,2}N?$")
 WIRE_BASE = re.compile(r"^[A-Z]{1,2}\d{1,4}$")            # 'P25' -> all segments of wire P25
 DESIGNATOR = re.compile(r"^[A-Z]{1,3}\d{1,4}[A-Z]?$")     # K45, S102, CB12, BT1
@@ -47,11 +47,16 @@ def _merge_line_boxes(boxes: list[tuple]) -> list[tuple]:
     return [tuple(o) for o in out]
 
 
-def _part_eq(wk: str, pk: str) -> bool:
-    return bool(wk) and (wk == pk or (len(pk) >= 5 and _edit_distance_le(wk, pk, 1)))
+def _is_code(s: str) -> bool:
+    """Wire numbers, connector pins and designators contain digits; one wrong character is a different item."""
+    return any(c.isdigit() for c in s)
 
 
-def _next_word(words: list, wkeys: list, chain: list[int], pk: str, used: set) -> int | None:
+def _part_eq(wk: str, pk: str, fuzzy: bool) -> bool:
+    return bool(wk) and (wk == pk or (fuzzy and len(pk) >= 5 and _edit_distance_le(wk, pk, 1)))
+
+
+def _next_word(words: list, wkeys: list, chain: list[int], pk: str, fuzzy: bool, used: set) -> int | None:
     """Nearest word matching `pk` that continues the label: right on the same line, or on one of
     the next lines underneath the words matched so far."""
     last = words[chain[-1]]
@@ -60,7 +65,7 @@ def _next_word(words: list, wkeys: list, chain: list[int], pk: str, used: set) -
     lh = max(4.0, last[3] - last[1])
     best, best_d = None, 1e9
     for j, w in enumerate(words):
-        if j in used or j in chain or not _part_eq(wkeys[j], pk):
+        if j in used or j in chain or not _part_eq(wkeys[j], pk, fuzzy):
             continue
         same_line = abs(w[1] - last[1]) < lh * 0.6 and -2 <= w[0] - last[2] < lh * 2.5
         below = 0 < w[1] - last[1] < lh * 2.6 and w[0] < x1 + lh * 3 and w[2] > x0 - lh * 3
@@ -88,11 +93,12 @@ def find_term(words: list, term: str, max_hits: int = 12) -> list[tuple]:
         for i, (w, wk) in enumerate(zip(words, wkeys)):
             if not wk:
                 continue
-            ok = wk == tkey
+            # an underline under a schematic label is often read as a leading 'L' or 'I' ('LC141-24')
+            ok = wk == tkey or (_is_code(term) and len(wk) == len(tkey) + 1 and wk[0] == "1" and wk[1:] == tkey)
             if not ok and WIRE_BASE.match(tplain) and wk.startswith(tkey):
                 rest = _plain(w[4])[len(tplain):]
                 ok = bool(WIRE_SUFFIX.match(rest) or WIRE_SUFFIX.match(rest.replace("O", "0")))  # 'P25' matches wire segments P25A20, P25B20N
-            if not ok and len(tkey) >= 5:
+            if not ok and len(tkey) >= 5 and not _is_code(term):
                 ok = _edit_distance_le(wk, tkey, 1)
             if not ok and DESIGNATOR.match(tplain):
                 # designator glued to other text by OCR, e.g. 'Contactor(K45)': box just that part
@@ -110,12 +116,13 @@ def find_term(words: list, term: str, max_hits: int = 12) -> list[tuple]:
     # 2) phrases laid out spatially: schematic labels are often stacked over two or three lines
     if n > 1:
         pkeys = [key(p) for p in tparts]
+        pfuzzy = [not _is_code(p) for p in tparts]
         for i, wk in enumerate(wkeys):
-            if i in used or not _part_eq(wk, pkeys[0]):
+            if i in used or not _part_eq(wk, pkeys[0], pfuzzy[0]):
                 continue
             chain = [i]
-            for pk in pkeys[1:]:
-                nxt = _next_word(words, wkeys, chain, pk, used)
+            for pk, fz in zip(pkeys[1:], pfuzzy[1:]):
+                nxt = _next_word(words, wkeys, chain, pk, fz, used)
                 if nxt is None:
                     break
                 chain.append(nxt)
@@ -137,7 +144,7 @@ def find_term(words: list, term: str, max_hits: int = 12) -> list[tuple]:
                 span.append(j)
                 if len(joined) >= len(tkey):
                     break
-            tol = 0 if len(tkey) < 8 else max(1, len(tkey) // 10)
+            tol = 0 if len(tkey) < 8 or _is_code(term) else max(1, len(tkey) // 10)
             if joined == tkey or (tol and _edit_distance_le(joined, tkey, tol)):
                 hits.extend(_merge_line_boxes([tuple(words[j][:4]) for j in span]))
                 used.update(span)
