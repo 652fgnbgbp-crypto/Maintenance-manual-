@@ -24,6 +24,9 @@
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-diagnose" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
   <symbol id="i-library" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6.5A2.5 2.5 0 0 0 4 21.5 2.5 2.5 0 0 0 6.5 24H19M8 7h7M8 11h7"/></symbol>
+  <symbol id="i-fixlog" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+  <symbol id="i-team" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/><circle cx="9" cy="7" r="4" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-resolved" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5M8.5 12.5l2.5 2.5 5-5"/></symbol>
   <symbol id="i-notes" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
   <symbol id="i-history" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 3"/></symbol>
   <symbol id="i-expand" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
@@ -51,10 +54,12 @@
   <nav class="rail-nav">
     <button class="nav-btn active" data-tab="diagnose"><svg><use href="#i-diagnose"/></svg><span>Diagnose</span></button>
     <button class="nav-btn" data-tab="library"><svg><use href="#i-library"/></svg><span>Library</span></button>
-    <button class="nav-btn" data-tab="notes"><svg><use href="#i-notes"/></svg><span>Notes</span></button>
+    <button class="nav-btn" data-tab="fixes"><svg><use href="#i-fixlog"/></svg><span>Fix Log</span></button>
     <button class="nav-btn" data-tab="history"><svg><use href="#i-history"/></svg><span>History</span></button>
+    <button class="nav-btn" data-tab="team"><svg><use href="#i-team"/></svg><span>Organisation</span></button>
   </nav>
   <div class="rail-foot">
+    <div class="org-name" id="orgNameRail"></div>
     <div class="aircraft" id="aircraftType"></div>
     <div class="stats" id="stats"></div>
     <div class="user" id="userBox"></div>
@@ -145,7 +150,7 @@
                 <option value="manual">Manual</option>
                 <option value="wiring">Wiring diagram</option>
                 <option value="service-bulletin">Service bulletin</option>
-                <option value="notes">Notes / logs</option>
+                <option value="notes">Logs / records</option>
                 <option value="other">Other</option>
               </select>
             </div>
@@ -186,26 +191,88 @@
     </div>
   </section>
 
-  <!-- ================================================================ NOTES -->
-  <section id="tab-notes" class="panel">
+  <!-- ================================================================ FIX LOG -->
+  <section id="tab-fixes" class="panel">
     <div class="split">
       <div class="pane pane-left">
-        <div class="pane-head"><h1>Notes</h1></div>
-        <form id="noteForm" class="card">
-          <div class="card-title">Add a troubleshooting note</div>
-          <label for="noteTitle">Title</label>
-          <input id="noteTitle" placeholder="e.g. Intermittent No.1 battery contactor: corroded ground G202">
+        <div class="pane-head"><h1>Fix Log</h1></div>
+        <p class="lead">Record problems you have solved and what fixed them. Vantage checks the Fix Log on every diagnosis, and shows matching entries as <b>Previously resolved</b>.</p>
+        <form id="fixForm" class="card">
+          <div class="card-title">Add a resolved defect</div>
+          <label for="fixSymptom">What was the problem? <span class="req">Required</span></label>
+          <textarea id="fixSymptom" rows="3" placeholder="e.g. No.1 battery contactor drops out intermittently on start"></textarea>
+          <label for="fixChecks">What did you check or find? <span class="muted">(optional)</span></label>
+          <textarea id="fixChecks" rows="3" placeholder="e.g. 24 V at K45 coil, high resistance on coil ground; G202 stud loose and corroded"></textarea>
+          <label for="fixFix">What fixed it? <span class="req">Required</span></label>
+          <textarea id="fixFix" rows="2" placeholder="e.g. Cleaned and re-torqued ground stud G202"></textarea>
           <div class="row">
-            <div class="field"><label for="noteSerial">Aircraft (serial / reg.)</label><input id="noteSerial" placeholder="optional"></div>
-            <div class="field"><label for="noteTags">Tags</label><input id="noteTags" placeholder="battery, 24-30-02, K45"></div>
+            <div class="field"><label for="fixAircraft">Aircraft (serial / reg.)</label><input id="fixAircraft" placeholder="e.g. 0150 / VH-ABC"></div>
+            <div class="field"><label for="fixSystem">System / ATA</label><input id="fixSystem" placeholder="e.g. Battery control 24-30-02"></div>
           </div>
-          <label for="noteBody">Symptom, what was checked, what fixed it</label>
-          <textarea id="noteBody" rows="7"></textarea>
-          <div class="row end"><button class="primary" type="submit">Save note</button></div>
+          <label for="fixTags">Tags <span class="muted">(part numbers, components, anything searchable)</span></label>
+          <input id="fixTags" placeholder="K45, G202, contactor">
+          <div class="row end"><button class="primary" type="submit">Save to Fix Log</button></div>
+          <div id="fixMsg" class="msg"></div>
         </form>
       </div>
       <div class="pane pane-right scroll">
-        <div class="card"><div class="card-title">Notes on file</div><div id="noteList"></div></div>
+        <div class="card">
+          <div class="card-title">Resolved defects <span class="count" id="fixCount"></span></div>
+          <form id="fixSearchForm" class="search-row"><svg><use href="#i-search"/></svg><input id="fixSearch" type="search" placeholder="Search the Fix Log"><button type="submit">Search</button></form>
+          <div id="fixList"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================ TEAM / ORGANISATION -->
+  <section id="tab-team" class="panel">
+    <div class="pane single wide">
+      <div class="pane-head"><h1>Organisation</h1></div>
+      <form id="orgForm" class="card">
+        <div class="card-title">Organisation details</div>
+        <div class="row">
+          <div class="field"><label for="orgName">Organisation name</label><input id="orgName"></div>
+          <div class="field"><label for="orgAircraft">Aircraft type</label><input id="orgAircraft" placeholder="e.g. Cessna 441 Conquest / Conquest II"></div>
+        </div>
+        <div class="hint">The aircraft type is given to the AI with every diagnosis.</div>
+        <div class="row end admin-only"><button class="primary" type="submit">Save</button></div>
+        <div id="orgMsg" class="msg"></div>
+      </form>
+
+      <div class="card admin-only">
+        <div class="card-title">Team</div>
+        <div id="memberList"></div>
+        <form id="memberForm">
+          <div class="card-title sub">Add a team member</div>
+          <div class="row">
+            <div class="field"><label for="memName">Name</label><input id="memName" autocomplete="off"></div>
+            <div class="field"><label for="memEmail">Email</label><input id="memEmail" type="email" autocomplete="off" autocapitalize="none"></div>
+            <div class="field"><label for="memPassword">Temporary password</label><input id="memPassword" type="text" autocomplete="off" placeholder="8+ characters"></div>
+          </div>
+          <label class="check"><input type="checkbox" id="memAdmin"><span>Administrator <span class="muted">(can manage the team and organisation details)</span></span></label>
+          <div class="row end"><button class="primary" type="submit">Add member</button></div>
+          <div id="memberMsg" class="msg"></div>
+        </form>
+      </div>
+
+      <div class="card platform-only hidden">
+        <div class="card-title">Subscribers <span class="muted">· Torwood administration</span></div>
+        <div id="orgAdminList"></div>
+        <form id="newOrgForm">
+          <div class="card-title sub">Add a subscribing organisation</div>
+          <div class="row">
+            <div class="field"><label for="noName">Organisation</label><input id="noName"></div>
+            <div class="field"><label for="noAircraft">Aircraft type</label><input id="noAircraft"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label for="noAdminName">Admin name</label><input id="noAdminName" autocomplete="off"></div>
+            <div class="field"><label for="noAdminEmail">Admin email</label><input id="noAdminEmail" type="email" autocomplete="off" autocapitalize="none"></div>
+            <div class="field"><label for="noAdminPw">Temporary password</label><input id="noAdminPw" type="text" autocomplete="off"></div>
+          </div>
+          <div class="row end"><button class="primary" type="submit">Create organisation</button></div>
+          <div id="newOrgMsg" class="msg"></div>
+        </form>
       </div>
     </div>
   </section>
@@ -222,8 +289,9 @@
 <nav class="tabbar">
   <button class="nav-btn active" data-tab="diagnose"><svg><use href="#i-diagnose"/></svg><span>Diagnose</span></button>
   <button class="nav-btn" data-tab="library"><svg><use href="#i-library"/></svg><span>Library</span></button>
-  <button class="nav-btn" data-tab="notes"><svg><use href="#i-notes"/></svg><span>Notes</span></button>
+  <button class="nav-btn" data-tab="fixes"><svg><use href="#i-fixlog"/></svg><span>Fix Log</span></button>
   <button class="nav-btn" data-tab="history"><svg><use href="#i-history"/></svg><span>History</span></button>
+  <button class="nav-btn" data-tab="team"><svg><use href="#i-team"/></svg><span>Organisation</span></button>
 </nav>
 
 <script src="/static/app.js"></script>

@@ -7,8 +7,9 @@ FILES_DIR = DATA_DIR / "files"
 CACHE_DIR = DATA_DIR / "cache"
 DB_PATH = DATA_DIR / "library.db"
 
-# Name of the aircraft type this library is for (shown in the UI and given to the AI).
+# Default aircraft type for a new organisation (each organisation can change its own).
 AIRCRAFT_TYPE = os.environ.get("MX_AIRCRAFT_TYPE", "Cessna 441 Conquest / Conquest II")
+DEFAULT_ORG_NAME = os.environ.get("VANTAGE_ORG_NAME", "My organisation")
 PRODUCT_NAME = "Vantage"
 COMPANY_NAME = "Torwood Aerospace Group"
 

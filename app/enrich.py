@@ -42,6 +42,11 @@ OCR text:
 {ocr}"""
 
 
+def _aircraft(doc: dict) -> str:
+    org = db.one("SELECT aircraft_type FROM organisations WHERE id = ?", (doc.get("org_id", 1),))
+    return (org and org["aircraft_type"]) or config.AIRCRAFT_TYPE
+
+
 def enrich_page(client: anthropic.Anthropic, doc: dict, page: dict) -> dict:
     content: list = []
     png = ingest.render_page(doc["id"], page["page_no"], config.MODEL_IMAGE_LONG_EDGE)
@@ -49,7 +54,7 @@ def enrich_page(client: anthropic.Anthropic, doc: dict, page: dict) -> dict:
         content.append({"type": "image", "source": {"type": "base64", "media_type": "image/png",
                                                     "data": base64.standard_b64encode(png).decode()}})
     content.append({"type": "text", "text": PROMPT.format(page_no=page["page_no"], title=doc["title"],
-                                                           aircraft=config.AIRCRAFT_TYPE,
+                                                           aircraft=_aircraft(doc),
                                                            ocr=(page["text"] or "")[:6000])})
     response = client.messages.create(
         model=config.ENRICH_MODEL,

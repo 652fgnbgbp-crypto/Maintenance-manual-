@@ -121,12 +121,19 @@ def test_agent_loop_produces_highlighted_diagnosis(app_env):
     src = app_env / "manual.pdf"
     make_manual(src)
     doc_id = ingest.ingest_file(src, "manual.pdf", "Test manual")
-    db.add_note("K45 intermittent", "Corroded ground at G202 caused K45 to drop out.", tags="battery")
+    fix_id = db.add_fix(1, "No.1 battery contactor drops out intermittently", "Cleaned and re-torqued ground stud G202",
+                        checks="K45 coil ground resistance high", system="Battery Control 24-30-02", aircraft="0145",
+                        created_by="J. Smith")
 
     diagnosis = {
         "summary": "No.1 battery contactor K45 is not closing.", "system": "Battery Control (24-30-02)",
         "confidence": "medium", "effectivity_note": "Page applies to 0001-0259.",
-        "probable_causes": [{"rank": 1, "cause": "K45 coil open", "likelihood": "high", "reasoning": "..."}],
+        "probable_causes": [{"rank": 1, "cause": "K45 ground G202 poor", "likelihood": "high", "reasoning": "...",
+                             "previous_fix_ids": [fix_id, 999]},
+                            {"rank": 2, "cause": "K45 coil open", "likelihood": "medium", "reasoning": "...",
+                             "previous_fix_ids": []}],
+        "previous_fixes": [{"note_id": fix_id, "match": "strong", "relevance": "Same contactor, same symptom."},
+                           {"note_id": 999, "match": "partial", "relevance": "Invented entry: must be dropped."}],
         "troubleshooting_steps": [{"step": 1, "action": "Measure voltage at K45 coil", "expected": "24 V",
                                    "if_abnormal": "Check P86B12", "cause_ranks": [1]}],
         "reasoning": "Traced from the battery switch to K45.",
@@ -157,6 +164,13 @@ def test_agent_loop_produces_highlighted_diagnosis(app_env):
     assert found == {"K45": 1, "BATTERY NO. 1 CONTACTOR": 1, "NOT-ON-PAGE": 0}
     kinds = [e.get("kind") for e in events if e["type"] == "step"]
     assert kinds == ["thinking", "search", "notes", "view", "locate"]
+
+    # cited Fix Log entries come back as full "Previously resolved" cards; invented ids are dropped
+    fixes = out["result"]["previous_fixes"]
+    assert [f["note_id"] for f in fixes] == [fix_id]
+    assert fixes[0]["fix"] == "Cleaned and re-torqued ground stud G202"
+    assert fixes[0]["aircraft"] == "0145" and fixes[0]["engineer"] == "J. Smith" and fixes[0]["verified"] is True
+    assert out["result"]["probable_causes"][0]["previous_fix_ids"] == [fix_id]
 
     # the page image went to the model, and the notes search found the note
     view_result = client.requests[2]["messages"][-1]["content"][0]["content"]
@@ -190,7 +204,12 @@ def test_http_api(app_env):
         loc = c.post(f"/api/pages/{doc_id}/1/locate", json={"terms": ["K44"]}).json()
         assert len(loc["K44"]) == 1
         assert c.get("/api/search", params={"q": "K45"}).json()["pages"]
-        assert c.post("/api/notes", json={"title": "t", "body": "b"}).status_code == 200
+        r = c.post("/api/fixes", json={"symptom": "Flaps inop both ways", "fix": "Reset CB4; replaced C3-43 pin",
+                                       "system": "27-50-01", "aircraft": "0150"})
+        assert r.status_code == 200 and r.json()["source"] == "manual"
+        assert c.post("/api/fixes", json={"symptom": "x", "fix": " "}).status_code == 400
+        assert c.get("/api/fixes", params={"q": "flaps"}).json()[0]["fix"].startswith("Reset CB4")
+        assert c.get("/api/search", params={"q": "C3-43"}).json()["fixes"]
         assert c.post("/api/documents", files={"file": ("x.exe", b"MZ", "application/octet-stream")}).status_code == 400
         assert c.delete(f"/api/documents/{doc_id}").json() == {"ok": True}
         assert c.get("/").status_code == 200
@@ -216,3 +235,72 @@ def test_sign_in(app_env, monkeypatch):
         assert info["user"]["name"] == "Tech" and info["login_required"] is True
         c.post("/api/logout")
         assert c.get("/api/info").status_code == 401
+
+
+def test_organisations_are_isolated(app_env):
+    """One subscriber must never see another subscriber's manuals, Fix Log or diagnoses."""
+    from fastapi.testclient import TestClient
+    from app import agent, auth, db, search
+    from app.main import app
+    src = app_env / "manual.pdf"
+    make_manual(src)
+    with TestClient(app) as anon:
+        assert anon.get("/api/info").status_code == 200  # organisation 1 exists from start-up
+    org_a = auth.create_org("Alpha Aviation", "Cessna 441")
+    org_b = auth.create_org("Bravo Air", "King Air 200")
+    auth.add_user("a@alpha.example", "password-a1", "Alice", is_admin=True, org_id=org_a)
+    auth.add_user("b@bravo.example", "password-b1", "Bob", is_admin=True, org_id=org_b)
+    auth.add_user("staff@torwood.example", "password-t1", "Torwood", is_admin=True, org_id=1, is_platform_admin=True)
+
+    def client_for(email, pw):
+        c = TestClient(app)
+        assert c.post("/api/login", json={"email": email, "password": pw}).status_code == 200
+        return c
+
+    a, b = client_for("a@alpha.example", "password-a1"), client_for("b@bravo.example", "password-b1")
+    doc = a.post("/api/documents", files={"file": ("m.pdf", src.read_bytes(), "application/pdf")}).json()
+    a.post("/api/fixes", json={"symptom": "K45 drops out", "fix": "Cleaned G202"})
+    diag_id = db.save_diagnosis("K45 drops out", "", {"summary": "s"}, [], org_id=org_a)
+
+    assert a.get("/api/info").json()["organisation"] == "Alpha Aviation"
+    assert b.get("/api/info").json()["aircraft_type"] == "King Air 200"
+    assert [d["id"] for d in a.get("/api/documents").json()] == [doc["id"]]
+    assert b.get("/api/documents").json() == []
+    for path in (f"/api/pages/{doc['id']}/1", f"/api/pages/{doc['id']}/1/image", f"/api/documents/{doc['id']}/pages",
+                 f"/api/diagnoses/{diag_id}"):
+        assert a.get(path).status_code == 200, path
+        assert b.get(path).status_code == 404, path
+    assert b.delete(f"/api/documents/{doc['id']}").status_code == 404
+    assert b.post(f"/api/pages/{doc['id']}/1/locate", json={"terms": ["K45"]}).status_code == 404
+    assert b.get("/api/search", params={"q": "K45"}).json() == {"pages": [], "fixes": []}
+    assert a.get("/api/search", params={"q": "K45"}).json()["pages"]
+    assert b.get("/api/fixes").json() == [] and b.get("/api/diagnoses").json() == []
+    fix_id = a.get("/api/fixes").json()[0]["id"]
+    assert b.delete(f"/api/fixes/{fix_id}").status_code == 404
+
+    # the AI's tools are scoped too
+    sb = agent.Session("", org_id=org_b)
+    assert "does not exist" in agent.tool_view_page({"doc_id": doc["id"], "page": 1}, set(), org_b)
+    assert "does not exist" in agent.tool_locate({"doc_id": doc["id"], "page": 1, "terms": ["K45"]}, org_b)
+    assert agent.tool_search_notes({"query": "K45"}, org_b, sb.seen_notes).startswith("No matching")
+    assert search.search_pages("K45", org_id=org_b) == []
+    res = agent.build_result({"references": [{"doc_id": doc["id"], "page": 1, "why": "", "highlights": [], "regions": []}],
+                              "previous_fixes": [{"note_id": fix_id, "match": "strong", "relevance": ""}],
+                              "probable_causes": []}, set(), org_b)
+    assert res["references"] == [] and res["previous_fixes"] == []
+
+    # team management: admins manage only their own organisation
+    assert a.post("/api/org/members", json={"email": "e@alpha.example", "name": "Eng", "password": "password-e1"}).status_code == 200
+    eng = client_for("e@alpha.example", "password-e1")
+    assert eng.post("/api/org/members", json={"email": "x@alpha.example", "password": "password-x1"}).status_code == 403
+    assert eng.get("/api/documents").json()[0]["id"] == doc["id"]
+    bob_id = db.one("SELECT id FROM users WHERE email = 'b@bravo.example'")["id"]
+    assert a.delete(f"/api/org/members/{bob_id}").status_code == 404
+    assert a.get("/api/admin/orgs").status_code == 403
+
+    # Torwood staff can suspend a subscription
+    staff = client_for("staff@torwood.example", "password-t1")
+    assert {o["name"] for o in staff.get("/api/admin/orgs").json()} >= {"Alpha Aviation", "Bravo Air"}
+    assert staff.put(f"/api/admin/orgs/{org_b}/status", json={"status": "suspended"}).status_code == 200
+    assert b.get("/api/documents").status_code == 402
+    assert b.get("/api/info").json()["org_status"] == "suspended"

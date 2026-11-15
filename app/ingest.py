@@ -109,7 +109,7 @@ def file_path(doc: dict) -> Path:
     return config.FILES_DIR / doc["stored_name"]
 
 
-def create_document(src: Path, original_name: str, title: str | None, category: str) -> int:
+def create_document(src: Path, original_name: str, title: str | None, category: str, org_id: int = 1) -> int:
     """Copy the upload into the library and register it. Processing happens in process_document."""
     config.ensure_dirs()
     ext = Path(original_name).suffix.lower()
@@ -134,8 +134,8 @@ def create_document(src: Path, original_name: str, title: str | None, category: 
 
     with db.tx() as conn:
         cur = conn.execute(
-            "INSERT INTO documents(title, filename, stored_name, kind, category) VALUES(?, ?, ?, ?, ?)",
-            (title or Path(original_name).stem, original_name, stored, kind, category),
+            "INSERT INTO documents(org_id, title, filename, stored_name, kind, category) VALUES(?, ?, ?, ?, ?, ?)",
+            (org_id, title or Path(original_name).stem, original_name, stored, kind, category),
         )
         return cur.lastrowid
 
@@ -188,8 +188,9 @@ def process_document(doc_id: int) -> None:
         raise
 
 
-def ingest_file(src: Path, original_name: str, title: str | None = None, category: str = "manual") -> int:
-    doc_id = create_document(src, original_name, title, category)
+def ingest_file(src: Path, original_name: str, title: str | None = None, category: str = "manual",
+                org_id: int = 1) -> int:
+    doc_id = create_document(src, original_name, title, category, org_id)
     process_document(doc_id)
     return doc_id
 

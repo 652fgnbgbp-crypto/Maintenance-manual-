@@ -23,6 +23,11 @@
   --accent-ink: #191406;     /* text on gold */
   --link: #1f4f8f;           /* links and active items on light backgrounds */
 
+  /* "Previously resolved": fixes from the organisation's own Fix Log */
+  --resolved-bg: #fbf4e6;
+  --resolved-line: #dea652;
+  --resolved-ink: #7a4e0c;
+
   /* Light content area */
   --bg: #f2f4f8;
   --surface: #ffffff;
@@ -46,6 +51,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    --resolved-bg: #2a2a22; --resolved-line: #dea652; --resolved-ink: #f0c47a;
     --brand: #101e33; --brand-2: #1b3150; --brand-line: #23365a;
     --link: #8fb4ec;
     --bg: #0e1726; --surface: #162943; --surface-2: #1b3150;
@@ -54,6 +60,7 @@
   }
 }
 :root[data-theme="dark"] {
+    --resolved-bg: #2a2a22; --resolved-line: #dea652; --resolved-ink: #f0c47a;
   --brand: #101e33; --brand-2: #1b3150; --brand-line: #23365a;
   --link: #8fb4ec;
   --bg: #0e1726; --surface: #162943; --surface-2: #1b3150;

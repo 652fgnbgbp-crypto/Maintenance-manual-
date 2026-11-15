@@ -19,11 +19,39 @@ Manual*, a 354-page scanned PDF with an OCR text layer.
 | **Answer** | A ranked list of probable causes, isolation steps (what to measure, the expected reading, and what an abnormal reading means), the reasoning, safety notes, and the questions that would narrow the fault down. |
 | **Highlighted diagrams** | Each referenced page opens in the viewer with the cited components, wire numbers and labels outlined, colour-coded by probable cause. You can zoom in, and clicking an item in the legend jumps to it. Highlights come from the page's OCR word positions, so they sit on the actual printed labels. |
 | **Follow-ups** | Report a test result ("24 V at the K45 coil, still doesn't close") and the AI continues from where it left off. |
-| **Learning loop** | Record the confirmed fix on a diagnosis. It is saved as a troubleshooting note, and future diagnoses check it. |
-| **Notes** | Add snags, known issues and fixes for the fleet. The AI searches them on every diagnosis. |
+| **Fix Log** | Engineers record problems they have solved: the symptom, what they found, what fixed it, the aircraft, and the system. The AI searches the Fix Log on every diagnosis. |
+| **Previously resolved** | Matching Fix Log entries appear in their own gold box at the top of the diagnosis, labelled *Strong match* or *Related*. Each one shows who fixed it, on which aircraft and when, and why it is relevant. Probable causes that a past fix confirms carry a *Previously resolved* tag. |
+| **Learning loop** | When an aircraft is fixed, record the fix on the diagnosis. It goes straight into the Fix Log. |
 
 Every page the AI cites is one it opened during that diagnosis. A cited page it did not open is
 flagged in the answer.
+
+## Subscription model
+
+Vantage is a website that organisations subscribe to. Each subscribing organisation has:
+
+- **Private data.** Its own library, Fix Log, diagnoses and team. No organisation can see another
+  organisation's data. Every request and every AI tool call is filtered by the user's
+  organisation, and the tests check this.
+- **Its own aircraft type,** which is given to the AI with every diagnosis.
+- **Administrators,** who add and remove their engineers on the **Organisation** page.
+- **A status:** `trial`, `active` or `suspended`. A suspended organisation's users can sign in,
+  but they see a notice and can't use the data until it is reactivated.
+
+**Torwood staff** are platform administrators. On the Organisation page they also see a
+**Subscribers** section, where they can create an organisation with its first administrator and
+suspend or reactivate an organisation. The same tasks are available from the command line:
+
+```bash
+python -m app.cli create-org "Example Air Services" --aircraft "Cessna 441 Conquest"
+python -m app.cli orgs
+python -m app.cli add-user admin@example.com --org 2 --name "Chief Engineer" --admin
+python -m app.cli set-status 2 suspended
+```
+
+Billing isn't connected yet. Monthly payments need a payment provider (for example Stripe) set up
+in Torwood's name. Once that exists, a subscription that starts, renews or lapses will set the
+organisation's status automatically.
 
 ## Using it on an iPad
 
@@ -47,13 +75,13 @@ runs on any container host (Render, Railway, Fly.io, or your own server):
 3. Set these environment variables:
    - `ANTHROPIC_API_KEY`
    - `MX_AIRCRAFT_TYPE`
-   - `VANTAGE_ADMIN_EMAIL` and `VANTAGE_ADMIN_PASSWORD` (creates the first sign-in)
+   - `VANTAGE_ADMIN_EMAIL` and `VANTAGE_ADMIN_PASSWORD` (creates the first Torwood platform administrator)
 4. Open the service's https address on the iPad and sign in.
 
 Sign-in is required as soon as one user exists. Add more users from the server's shell:
 
 ```bash
-python -m app.cli add-user tech@example.com --name "A. Technician"
+python -m app.cli add-user tech@example.com --org 1 --name "A. Technician"
 python -m app.cli set-password tech@example.com
 ```
 
@@ -82,8 +110,8 @@ Then open <http://localhost:8000>, go to **Library** and upload your files.
 For a large batch, you can import from the command line instead:
 
 ```bash
-python -m app.cli import manuals/*.pdf --category manual
-python -m app.cli import notes/*.md --category notes
+python -m app.cli import manuals/*.pdf --org 1 --category manual
+python -m app.cli import notes/*.md --org 1 --category notes
 ```
 
 ### Optional: have the AI read every page

@@ -34,7 +34,11 @@ from the power source through circuit breakers, switches, relay contacts, the lo
 which components and wires could explain the symptom. Open the circuit-operation text pages as well when they exist.
 4. Check effectivity: pages apply to aircraft serial ranges. If the technician gave a serial number, use only \
 pages whose effectivity covers it, and say so. If not, note where the answer depends on serial range.
-5. Use search_notes to look for troubleshooting notes and past fixes on this fleet; weigh them as field experience.
+5. Always search the organisation's Fix Log with search_notes (try the symptom, the system and the main \
+components). These are problems this organisation's engineers have already solved, and what fixed them. When an \
+entry is relevant, list it in previous_fixes and link it to the causes it supports with previous_fix_ids. Treat it \
+as strong field evidence when the symptom matches, but still check it against the manual: a past fix can be a \
+different fault with a similar symptom.
 6. Before submitting, call locate_on_page for each page you will cite, with the exact labels you intend to \
 highlight (reference designators, wire numbers, component names as printed). Only highlight terms that were found; \
 if a key item cannot be found because the OCR is poor, describe it in a region instead.
@@ -43,6 +47,7 @@ practical isolation steps (what to measure, where, the expected reading) that te
 quickest checks first.
 
 Rules:
+- Cite only Fix Log entries that search_notes returned in this conversation, by their note_id.
 - Cite only pages you opened with view_page in this conversation. Never invent page numbers, part numbers, \
 wire numbers or values that you did not read in the library.
 - If the library does not contain the circuit, say so plainly in the summary, give general guidance marked as \
@@ -88,7 +93,8 @@ TOOLS = [
     },
     {
         "name": "search_notes",
-        "description": "Search the fleet's troubleshooting notes, snag history and previously confirmed fixes.",
+        "description": "Search this organisation's Fix Log: problems its engineers have already solved on this fleet, "
+                       "what they checked and what fixed it. Returns entries with a note_id.",
         "input_schema": {
             "type": "object",
             "properties": {"query": {"type": "string"}},
@@ -132,8 +138,10 @@ TOOLS = [
                             "cause": {"type": "string", "description": "Short name, e.g. 'Battery No.1 contactor (K45) coil open'."},
                             "likelihood": {"type": "string", "enum": ["high", "medium", "low"]},
                             "reasoning": {"type": "string", "description": "How the symptom follows from this fault, referring to the schematic."},
+                            "previous_fix_ids": {"type": "array", "items": {"type": "integer"},
+                                                 "description": "note_ids of Fix Log entries where this cause was the confirmed fix; empty if none."},
                         },
-                        "required": ["rank", "cause", "likelihood", "reasoning"],
+                        "required": ["rank", "cause", "likelihood", "reasoning", "previous_fix_ids"],
                         "additionalProperties": False,
                     },
                 },
@@ -195,11 +203,27 @@ TOOLS = [
                         "additionalProperties": False,
                     },
                 },
+                "previous_fixes": {
+                    "type": "array",
+                    "description": "Relevant Fix Log entries (from search_notes), most relevant first. Empty if none apply.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "note_id": {"type": "integer"},
+                            "match": {"type": "string", "enum": ["strong", "partial"],
+                                      "description": "strong: same symptom on the same system; partial: related."},
+                            "relevance": {"type": "string", "description": "One or two sentences: how this past fix relates to the current defect."},
+                        },
+                        "required": ["note_id", "match", "relevance"],
+                        "additionalProperties": False,
+                    },
+                },
                 "safety_notes": {"type": "array", "items": {"type": "string"}},
                 "missing_info": {"type": "array", "items": {"type": "string"}, "description": "Questions or data that would narrow the diagnosis."},
             },
             "required": ["summary", "system", "confidence", "effectivity_note", "probable_causes",
-                         "troubleshooting_steps", "reasoning", "references", "safety_notes", "missing_info"],
+                         "troubleshooting_steps", "reasoning", "references", "previous_fixes", "safety_notes",
+                         "missing_info"],
             "additionalProperties": False,
         },
         "strict": True,
@@ -207,14 +231,15 @@ TOOLS = [
 ]
 
 
-def library_overview() -> str:
-    docs = db.query("SELECT id, title, kind, category, page_count FROM documents WHERE status='ready' ORDER BY id")
-    notes = db.one("SELECT COUNT(*) AS n FROM notes")["n"]
+def library_overview(org_id: int) -> str:
+    docs = db.query("SELECT id, title, kind, category, page_count FROM documents WHERE status='ready' AND org_id = ? "
+                    "ORDER BY id", (org_id,))
+    notes = db.one("SELECT COUNT(*) AS n FROM notes WHERE org_id = ?", (org_id,))["n"]
     if not docs:
         lines = ["(no documents uploaded yet)"]
     else:
         lines = [f"- doc_id {d['id']}: {d['title']} ({d['category']}, {d['page_count']} pages)" for d in docs]
-    return "Documents in the library:\n" + "\n".join(lines) + f"\nTroubleshooting notes on file: {notes}"
+    return "Documents in the library:\n" + "\n".join(lines) + f"\nFix Log entries on file: {notes}"
 
 
 # ------------------------------------------------------------------ tool implementations
@@ -228,9 +253,9 @@ def _page_ref(p: dict) -> dict:
     }
 
 
-def tool_search_library(inp: dict) -> str:
+def tool_search_library(inp: dict, org_id: int) -> str:
     pt = inp.get("page_type")
-    hits = search.search_pages(inp["query"], limit=10, page_type=None if pt in (None, "any") else pt)
+    hits = search.search_pages(inp["query"], limit=10, page_type=None if pt in (None, "any") else pt, org_id=org_id)
     if not hits:
         return "No matching pages. Try other terms (component names, designators, ATA numbers) or page_type 'any'."
     out = []
@@ -243,8 +268,8 @@ def tool_search_library(inp: dict) -> str:
     return json.dumps(out, indent=1)
 
 
-def tool_view_page(inp: dict, viewed: set) -> list | str:
-    page = ingest.get_page(inp["doc_id"], inp["page"])
+def tool_view_page(inp: dict, viewed: set, org_id: int) -> list | str:
+    page = ingest.get_page(inp["doc_id"], inp["page"]) if db.org_document(org_id, inp["doc_id"]) else None
     if page is None:
         return f"Page {inp['page']} of document {inp['doc_id']} does not exist."
     viewed.add((inp["doc_id"], inp["page"]))
@@ -263,18 +288,21 @@ def tool_view_page(inp: dict, viewed: set) -> list | str:
     return content
 
 
-def tool_search_notes(inp: dict) -> str:
-    notes = search.search_notes(inp["query"])
+def tool_search_notes(inp: dict, org_id: int, seen: set) -> str:
+    notes = search.search_notes(inp["query"], org_id=org_id)
     if not notes:
-        return "No matching troubleshooting notes."
+        return "No matching Fix Log entries."
+    seen.update(n["id"] for n in notes)
     return json.dumps([
-        {"note_id": n["id"], "title": n["title"], "aircraft": n["serial"], "date": n["created_at"],
-         "source": n["source"], "tags": n["tags"], "body": n["body"][:2500]}
+        {"note_id": n["id"], "aircraft": n["serial"], "system": n["system"], "date": n["created_at"],
+         "engineer": n["created_by"], "tags": n["tags"], "entry": n["body"][:2500]}
         for n in notes
     ], indent=1)
 
 
-def tool_locate(inp: dict) -> str:
+def tool_locate(inp: dict, org_id: int) -> str:
+    if not db.org_document(org_id, inp["doc_id"]):
+        return f"Document {inp['doc_id']} does not exist."
     found = highlight.locate_terms(inp["doc_id"], inp["page"], inp["terms"])
     out = {}
     for term, boxes in found.items():
@@ -288,11 +316,27 @@ def tool_locate(inp: dict) -> str:
 # ------------------------------------------------------------------ result post-processing
 
 
-def build_result(diag: dict, viewed: set) -> dict:
-    """Attach page metadata and on-page highlight boxes to the model's diagnosis."""
+def _fix_card(n: dict) -> dict:
+    return {"note_id": n["id"], "symptom": n["symptom"] or n["title"], "checks": n["checks"],
+            "fix": n["fix"] or n["body"], "aircraft": n["serial"], "system": n["system"],
+            "engineer": n["created_by"], "date": n["created_at"], "source": n["source"]}
+
+
+def build_result(diag: dict, viewed: set, org_id: int = 1, seen_notes: set | None = None) -> dict:
+    """Attach page metadata, on-page highlight boxes and the cited Fix Log entries to the diagnosis.
+    Anything that is not in the organisation's own library is dropped."""
+    fixes = []
+    for pf in diag.get("previous_fixes", []):
+        n = db.one("SELECT * FROM notes WHERE id = ? AND org_id = ?", (pf["note_id"], org_id))
+        if n is not None:
+            fixes.append({**_fix_card(n), "match": pf.get("match", "partial"), "relevance": pf.get("relevance", ""),
+                          "verified": seen_notes is None or n["id"] in seen_notes})
+    known = {f["note_id"] for f in fixes}
+    causes = [{**c, "previous_fix_ids": [i for i in c.get("previous_fix_ids", []) if i in known]}
+              for c in diag.get("probable_causes", [])]
     refs = []
     for ref in diag.get("references", []):
-        page = ingest.get_page(ref["doc_id"], ref["page"])
+        page = ingest.get_page(ref["doc_id"], ref["page"]) if db.org_document(org_id, ref["doc_id"]) else None
         if page is None:
             continue
         terms = [h["term"] for h in ref.get("highlights", [])]
@@ -310,16 +354,20 @@ def build_result(diag: dict, viewed: set) -> dict:
             "has_image": page["doc_kind"] != "text", "verified": (ref["doc_id"], ref["page"]) in viewed,
             "text": page["text"] if page["doc_kind"] == "text" else None,
         })
-    return {**diag, "references": refs}
+    return {**diag, "probable_causes": causes, "previous_fixes": fixes, "references": refs}
 
 
 # ------------------------------------------------------------------ sessions
 
 
 class Session:
-    def __init__(self, serial: str):
+    def __init__(self, serial: str, org_id: int = 1, aircraft_type: str = "", user_name: str = ""):
         self.id = uuid.uuid4().hex
         self.serial = serial
+        self.org_id = org_id
+        self.aircraft_type = aircraft_type or config.AIRCRAFT_TYPE
+        self.user_name = user_name
+        self.seen_notes: set = set()
         self.messages: list = []
         self.pending_tool_use: str | None = None  # submit_diagnosis id awaiting a tool_result
         self.viewed: set = set()
@@ -332,14 +380,15 @@ class Session:
 SESSIONS: dict[str, Session] = {}
 
 
-def get_or_create_session(session_id: str | None, serial: str) -> Session:
-    if session_id and session_id in SESSIONS:
+def get_or_create_session(session_id: str | None, serial: str, org_id: int = 1, aircraft_type: str = "",
+                          user_name: str = "") -> Session:
+    if session_id and session_id in SESSIONS and SESSIONS[session_id].org_id == org_id:
         return SESSIONS[session_id]
     # drop sessions idle for more than 6 hours
     cutoff = time.time() - 6 * 3600
     for k in [k for k, s in SESSIONS.items() if s.updated < cutoff]:
         SESSIONS.pop(k, None)
-    s = Session(serial)
+    s = Session(serial, org_id, aircraft_type, user_name)
     SESSIONS[s.id] = s
     return s
 
@@ -357,7 +406,7 @@ def run(session: Session, user_text: str, emit: Emit, client=None) -> dict:
         if first:
             serial_line = f"Aircraft serial number: {session.serial}" if session.serial else \
                 "Aircraft serial number: not given"
-            text = f"{library_overview()}\n\n{serial_line}\n\nReported problem:\n{user_text}"
+            text = f"{library_overview(session.org_id)}\n\n{serial_line}\n\nReported problem:\n{user_text}"
         else:
             text = f"Technician follow-up:\n{user_text}"
         content: list = []
@@ -368,7 +417,7 @@ def run(session: Session, user_text: str, emit: Emit, client=None) -> dict:
         content.append({"type": "text", "text": text})
         session.messages.append({"role": "user", "content": content})
 
-        system = SYSTEM_PROMPT.format(aircraft=config.AIRCRAFT_TYPE)
+        system = SYSTEM_PROMPT.format(aircraft=session.aircraft_type)
         for turn in range(config.MAX_AGENT_TURNS):
             emit({"type": "status", "text": "Thinking…" if turn == 0 else "Analysing…"})
             with client.beta.messages.stream(
@@ -414,10 +463,11 @@ def run(session: Session, user_text: str, emit: Emit, client=None) -> dict:
             if submit is not None:
                 others = [b for b in tool_uses if b is not submit]
                 if not others:
-                    result = build_result(submit.input, session.viewed)
+                    result = build_result(submit.input, session.viewed, session.org_id, session.seen_notes)
                     session.pending_tool_use = submit.id
                     session.diagnosis_id = db.save_diagnosis(user_text if first else f"(follow-up) {user_text}",
-                                                             session.serial, result, session.trace)
+                                                             session.serial, result, session.trace,
+                                                             org_id=session.org_id, created_by=session.user_name)
                     return {"type": "diagnosis", "session_id": session.id, "diagnosis_id": session.diagnosis_id,
                             "result": result, "trace": session.trace}
 
@@ -438,22 +488,22 @@ def _execute(block, session: Session, emit: Emit) -> dict:
         if name == "search_library":
             step = {"kind": "search", "text": f"Searched manuals: “{inp['query']}”"
                     + (f" ({inp['page_type']} pages)" if inp.get("page_type") not in (None, "any") else "")}
-            out = tool_search_library(inp)
+            out = tool_search_library(inp, session.org_id)
         elif name == "view_page":
-            page = ingest.get_page(inp["doc_id"], inp["page"])
+            page = ingest.get_page(inp["doc_id"], inp["page"]) if db.org_document(session.org_id, inp["doc_id"]) else None
             label = f"page {inp['page']}"
             if page:
                 bits = [page.get("ata"), f"p.{page['page_label']}" if page.get("page_label") else None, page.get("subject")]
                 label += " — " + " ".join(b for b in bits if b)
             step = {"kind": "view", "text": f"Opened {label}", "doc_id": inp["doc_id"], "page": inp["page"]}
-            out = tool_view_page(inp, session.viewed)
+            out = tool_view_page(inp, session.viewed, session.org_id)
         elif name == "search_notes":
-            step = {"kind": "notes", "text": f"Checked troubleshooting notes: “{inp['query']}”"}
-            out = tool_search_notes(inp)
+            step = {"kind": "notes", "text": f"Checked the Fix Log: “{inp['query']}”"}
+            out = tool_search_notes(inp, session.org_id, session.seen_notes)
         elif name == "locate_on_page":
             step = {"kind": "locate", "text": f"Located {', '.join(inp['terms'][:6])} on page {inp['page']}",
                     "doc_id": inp["doc_id"], "page": inp["page"]}
-            out = tool_locate(inp)
+            out = tool_locate(inp, session.org_id)
         elif name == "submit_diagnosis":
             step = None
             out = "Submit the diagnosis on its own, without other tool calls in the same turn."

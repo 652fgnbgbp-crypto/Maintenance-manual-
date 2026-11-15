@@ -1,4 +1,4 @@
-"""Full-text search over manual pages and troubleshooting notes (SQLite FTS5, BM25 ranking)."""
+"""Full-text search over an organisation's manual pages and Fix Log (SQLite FTS5, BM25 ranking)."""
 import re
 
 from . import db
@@ -30,7 +30,8 @@ def fts_query(text: str) -> str:
     return " OR ".join(out[:24])
 
 
-def search_pages(text: str, limit: int = 8, doc_id: int | None = None, page_type: str | None = None) -> list[dict]:
+def search_pages(text: str, limit: int = 8, doc_id: int | None = None, page_type: str | None = None,
+                 org_id: int = 1) -> list[dict]:
     q = fts_query(text)
     if not q:
         return []
@@ -39,9 +40,9 @@ def search_pages(text: str, limit: int = 8, doc_id: int | None = None, page_type
         "p.ai_summary, d.title AS doc_title, bm25(pages_fts, 1.0, 4.0, 4.0, 3.0, 3.0, 1.0) AS score, "
         "snippet(pages_fts, 0, '[', ']', ' … ', 18) AS snippet "
         "FROM pages_fts JOIN pages p ON p.id = pages_fts.rowid JOIN documents d ON d.id = p.doc_id "
-        "WHERE pages_fts MATCH ?"
+        "WHERE pages_fts MATCH ? AND d.org_id = ?"
     )
-    params: list = [q]
+    params: list = [q, org_id]
     if doc_id is not None:
         sql += " AND p.doc_id = ?"
         params.append(doc_id)
@@ -56,15 +57,15 @@ def search_pages(text: str, limit: int = 8, doc_id: int | None = None, page_type
         return []
 
 
-def search_notes(text: str, limit: int = 6) -> list[dict]:
+def search_notes(text: str, limit: int = 6, org_id: int = 1) -> list[dict]:
     q = fts_query(text)
     if not q:
         return []
     try:
         return db.query(
             "SELECT n.*, bm25(notes_fts) AS score FROM notes_fts JOIN notes n ON n.id = notes_fts.rowid "
-            "WHERE notes_fts MATCH ? ORDER BY score LIMIT ?",
-            (q, limit),
+            "WHERE notes_fts MATCH ? AND n.org_id = ? ORDER BY score LIMIT ?",
+            (q, org_id, limit),
         )
     except Exception:
         return []

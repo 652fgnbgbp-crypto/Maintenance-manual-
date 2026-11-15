@@ -1,7 +1,8 @@
 """Sign-in for when Vantage is hosted online.
 
-Users are stored in the library database with PBKDF2-hashed passwords. Sign-in is required as soon
-as at least one user exists. The first user can be created from the command line
+Each user belongs to one organisation (the subscriber) and sees only that organisation's data.
+Organisation admins manage their own team; platform admins (Torwood staff) can also create
+organisations. Passwords are PBKDF2-hashed. Sign-in is required as soon as at least one user exists. The first user can be created from the command line
 (`python -m app.cli add-user`) or from the VANTAGE_ADMIN_EMAIL / VANTAGE_ADMIN_PASSWORD environment
 variables, which suits cloud hosts that have no shell.
 """
@@ -22,7 +23,9 @@ CREATE TABLE IF NOT EXISTS users (
     email      TEXT NOT NULL UNIQUE COLLATE NOCASE,
     name       TEXT NOT NULL DEFAULT '',
     pw_hash    TEXT NOT NULL,
-    is_admin   INTEGER NOT NULL DEFAULT 0,
+    org_id     INTEGER NOT NULL DEFAULT 1 REFERENCES organisations(id),
+    is_admin   INTEGER NOT NULL DEFAULT 0,          -- administrator of their organisation
+    is_platform_admin INTEGER NOT NULL DEFAULT 0,   -- Torwood staff
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -38,7 +41,7 @@ def init() -> None:
         conn.executescript(SCHEMA)
     email, password = os.environ.get("VANTAGE_ADMIN_EMAIL"), os.environ.get("VANTAGE_ADMIN_PASSWORD")
     if email and password and not db.one("SELECT id FROM users WHERE email = ?", (email,)):
-        add_user(email, password, name="Administrator", is_admin=True)
+        add_user(email, password, name="Administrator", is_admin=True, is_platform_admin=True)
 
 
 def _hash(password: str, salt: bytes | None = None) -> str:
@@ -56,13 +59,39 @@ def _verify(password: str, stored: str) -> bool:
         return False
 
 
-def add_user(email: str, password: str, name: str = "", is_admin: bool = False) -> int:
+def add_user(email: str, password: str, name: str = "", is_admin: bool = False, org_id: int = 1,
+             is_platform_admin: bool = False) -> int:
     if len(password) < 8:
         raise ValueError("Password must be at least 8 characters.")
+    if "@" not in email:
+        raise ValueError("Enter a valid email address.")
+    if db.one("SELECT id FROM users WHERE email = ?", (email.strip(),)):
+        raise ValueError("A user with that email already exists.")
+    if not db.one("SELECT id FROM organisations WHERE id = ?", (org_id,)):
+        raise ValueError(f"No organisation {org_id}.")
     with db.tx() as conn:
-        cur = conn.execute("INSERT INTO users(email, name, pw_hash, is_admin) VALUES(?, ?, ?, ?)",
-                           (email.strip(), name.strip(), _hash(password), int(is_admin)))
+        cur = conn.execute(
+            "INSERT INTO users(email, name, pw_hash, is_admin, org_id, is_platform_admin) VALUES(?, ?, ?, ?, ?, ?)",
+            (email.strip(), name.strip(), _hash(password), int(is_admin), org_id, int(is_platform_admin)))
         return cur.lastrowid
+
+
+def create_org(name: str, aircraft_type: str = "", status: str = "active") -> int:
+    with db.tx() as conn:
+        cur = conn.execute("INSERT INTO organisations(name, aircraft_type, status) VALUES(?, ?, ?)",
+                           (name.strip(), aircraft_type.strip(), status))
+        return cur.lastrowid
+
+
+def members(org_id: int) -> list[dict]:
+    return db.query("SELECT id, email, name, is_admin, created_at FROM users WHERE org_id = ? ORDER BY name, email",
+                    (org_id,))
+
+
+def remove_user(org_id: int, user_id: int) -> bool:
+    with db.tx() as conn:
+        cur = conn.execute("DELETE FROM users WHERE id = ? AND org_id = ?", (user_id, org_id))
+        return cur.rowcount > 0
 
 
 def set_password(email: str, password: str) -> bool:
@@ -101,5 +130,6 @@ def user_for(token: str | None) -> dict | None:
     if not token:
         return None
     return db.one(
-        "SELECT u.id, u.email, u.name, u.is_admin FROM sessions s JOIN users u ON u.id = s.user_id "
-        "WHERE s.token = ? AND s.expires > ?", (token, time.time()))
+        "SELECT u.id, u.email, u.name, u.is_admin, u.is_platform_admin, u.org_id, o.name AS org_name, "
+        "o.status AS org_status, o.aircraft_type FROM sessions s JOIN users u ON u.id = s.user_id "
+        "JOIN organisations o ON o.id = u.org_id WHERE s.token = ? AND s.expires > ?", (token, time.time()))

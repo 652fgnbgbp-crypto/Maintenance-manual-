@@ -1,4 +1,8 @@
-"""SQLite storage: documents, pages (with full-text index), troubleshooting notes, diagnoses."""
+"""SQLite storage: organisations, documents, pages (with full-text index), the Fix Log, diagnoses.
+
+Every document, Fix Log entry and diagnosis belongs to one organisation; all queries that serve a
+signed-in user are filtered by that user's organisation.
+"""
 import json
 import sqlite3
 import threading
@@ -7,8 +11,18 @@ from contextlib import contextmanager
 from . import config
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS organisations (
+    id            INTEGER PRIMARY KEY,
+    name          TEXT NOT NULL,
+    aircraft_type TEXT NOT NULL DEFAULT '',
+    plan          TEXT NOT NULL DEFAULT 'standard',
+    status        TEXT NOT NULL DEFAULT 'active',     -- trial | active | suspended
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS documents (
     id            INTEGER PRIMARY KEY,
+    org_id        INTEGER NOT NULL DEFAULT 1 REFERENCES organisations(id),
     title         TEXT NOT NULL,
     filename      TEXT NOT NULL,
     stored_name   TEXT NOT NULL,
@@ -44,13 +58,20 @@ CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
     tokenize='unicode61 remove_diacritics 2'
 );
 
+-- The Fix Log: problems engineers have solved, and how. Shown in diagnoses as "Previously resolved".
 CREATE TABLE IF NOT EXISTS notes (
     id          INTEGER PRIMARY KEY,
+    org_id      INTEGER NOT NULL DEFAULT 1 REFERENCES organisations(id),
     title       TEXT NOT NULL,
     body        TEXT NOT NULL,
     tags        TEXT NOT NULL DEFAULT '',
-    serial      TEXT NOT NULL DEFAULT '',  -- aircraft serial / registration the note applies to
+    serial      TEXT NOT NULL DEFAULT '',  -- aircraft serial / registration the entry applies to
     source      TEXT NOT NULL DEFAULT 'manual',  -- manual | diagnosis
+    symptom     TEXT NOT NULL DEFAULT '',  -- what was reported
+    checks      TEXT NOT NULL DEFAULT '',  -- what was checked / found
+    fix         TEXT NOT NULL DEFAULT '',  -- what fixed it
+    system      TEXT NOT NULL DEFAULT '',  -- system / ATA chapter
+    created_by  TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -60,6 +81,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
 
 CREATE TABLE IF NOT EXISTS diagnoses (
     id          INTEGER PRIMARY KEY,
+    org_id      INTEGER NOT NULL DEFAULT 1 REFERENCES organisations(id),
+    created_by  TEXT NOT NULL DEFAULT '',
     question    TEXT NOT NULL,
     serial      TEXT NOT NULL DEFAULT '',
     result      TEXT,          -- JSON
@@ -81,8 +104,35 @@ def connect() -> sqlite3.Connection:
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA foreign_keys = ON")
         _conn.execute("PRAGMA journal_mode = WAL")
+        _migrate(_conn)
         _conn.executescript(SCHEMA)
+        if _conn.execute("SELECT COUNT(*) FROM organisations").fetchone()[0] == 0:
+            _conn.execute("INSERT INTO organisations(id, name, aircraft_type) VALUES(1, ?, ?)",
+                          (config.DEFAULT_ORG_NAME, config.AIRCRAFT_TYPE))
+            _conn.commit()
     return _conn
+
+
+# Columns added after the first release; older databases get them on start-up.
+_NEW_COLUMNS = {
+    "documents": [("org_id", "INTEGER NOT NULL DEFAULT 1")],
+    "notes": [("org_id", "INTEGER NOT NULL DEFAULT 1"), ("symptom", "TEXT NOT NULL DEFAULT ''"),
+              ("checks", "TEXT NOT NULL DEFAULT ''"), ("fix", "TEXT NOT NULL DEFAULT ''"),
+              ("system", "TEXT NOT NULL DEFAULT ''"), ("created_by", "TEXT NOT NULL DEFAULT ''")],
+    "diagnoses": [("org_id", "INTEGER NOT NULL DEFAULT 1"), ("created_by", "TEXT NOT NULL DEFAULT ''")],
+    "users": [("org_id", "INTEGER NOT NULL DEFAULT 1"), ("is_platform_admin", "INTEGER NOT NULL DEFAULT 0")],
+}
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, cols in _NEW_COLUMNS.items():
+        existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if not existing:
+            continue  # table not created yet; SCHEMA creates it with every column
+        for name, decl in cols:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    conn.commit()
 
 
 def reset_connection() -> None:
@@ -161,26 +211,58 @@ def delete_document(doc_id: int) -> None:
         conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
 
 
-def add_note(title: str, body: str, tags: str = "", serial: str = "", source: str = "manual") -> int:
+def compose_fix_body(symptom: str, checks: str, fix: str) -> str:
+    parts = [f"Symptom: {symptom}"]
+    if checks:
+        parts.append(f"Checked / found: {checks}")
+    parts.append(f"Fixed by: {fix}")
+    return "\n\n".join(parts)
+
+
+def add_fix(org_id: int, symptom: str, fix: str, checks: str = "", system: str = "", aircraft: str = "",
+            tags: str = "", created_by: str = "", source: str = "manual", title: str = "") -> int:
+    """Add a Fix Log entry: a problem an engineer solved and what solved it."""
+    title = title or (symptom if len(symptom) <= 90 else symptom[:87] + "…")
     with tx() as conn:
         cur = conn.execute(
-            "INSERT INTO notes(title, body, tags, serial, source) VALUES(?, ?, ?, ?, ?)",
-            (title, body, tags, serial, source),
+            "INSERT INTO notes(org_id, title, body, tags, serial, source, symptom, checks, fix, system, created_by) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (org_id, title, compose_fix_body(symptom, checks, fix), tags, aircraft, source, symptom, checks, fix,
+             system, created_by),
         )
         index_note(conn, cur.lastrowid)
         return cur.lastrowid
 
 
-def delete_note(note_id: int) -> None:
-    with tx() as conn:
-        conn.execute("DELETE FROM notes_fts WHERE rowid = ?", (note_id,))
-        conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
-
-
-def save_diagnosis(question: str, serial: str, result: dict, trace: list) -> int:
+def add_note(title: str, body: str, tags: str = "", serial: str = "", source: str = "manual", org_id: int = 1) -> int:
+    """Free-text entry (older form). New entries should use add_fix."""
     with tx() as conn:
         cur = conn.execute(
-            "INSERT INTO diagnoses(question, serial, result, trace) VALUES(?, ?, ?, ?)",
-            (question, serial, json.dumps(result), json.dumps(trace)),
+            "INSERT INTO notes(org_id, title, body, tags, serial, source) VALUES(?, ?, ?, ?, ?, ?)",
+            (org_id, title, body, tags, serial, source),
+        )
+        index_note(conn, cur.lastrowid)
+        return cur.lastrowid
+
+
+def delete_note(note_id: int, org_id: int) -> bool:
+    with tx() as conn:
+        if conn.execute("SELECT 1 FROM notes WHERE id = ? AND org_id = ?", (note_id, org_id)).fetchone() is None:
+            return False
+        conn.execute("DELETE FROM notes_fts WHERE rowid = ?", (note_id,))
+        conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+        return True
+
+
+def org_document(org_id: int, doc_id: int) -> dict | None:
+    """The document, only if it belongs to this organisation."""
+    return one("SELECT * FROM documents WHERE id = ? AND org_id = ?", (doc_id, org_id))
+
+
+def save_diagnosis(question: str, serial: str, result: dict, trace: list, org_id: int = 1, created_by: str = "") -> int:
+    with tx() as conn:
+        cur = conn.execute(
+            "INSERT INTO diagnoses(org_id, created_by, question, serial, result, trace) VALUES(?, ?, ?, ?, ?, ?)",
+            (org_id, created_by, question, serial, json.dumps(result), json.dumps(trace)),
         )
         return cur.lastrowid

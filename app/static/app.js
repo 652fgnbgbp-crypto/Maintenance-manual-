@@ -46,7 +46,8 @@ function showTab(name) {
   $$(".nav-btn").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
   $$(".panel").forEach((p) => p.classList.toggle("active", p.id === `tab-${name}`));
   if (name === "library") refreshDocs();
-  if (name === "notes") refreshNotes();
+  if (name === "fixes") refreshFixes();
+  if (name === "team") refreshOrg();
   if (name === "history") refreshHistory();
   requestAnimationFrame(() => { diagViewer.refit(); libViewer.refit(); });
 }
@@ -59,10 +60,16 @@ $("#signOutTop").addEventListener("click", signOut);
 
 async function refreshInfo() {
   const info = await api("/api/info");
+  $("#orgNameRail").textContent = info.organisation;
   $("#aircraftType").textContent = info.aircraft_type;
-  $("#aircraftTypeTop").textContent = info.aircraft_type;
+  $("#aircraftTypeTop").textContent = `${info.organisation} · ${info.aircraft_type}`;
   const n = (k, word) => `${k} ${word}${k === 1 ? "" : "s"}`;
-  $("#stats").textContent = `${n(info.documents, "document")} · ${n(info.pages, "page")} · ${n(info.notes, "note")}`;
+  $("#stats").textContent = `${n(info.documents, "document")} · ${n(info.pages, "page")} · ${n(info.fixes, "fix")}`.replace("fixs", "fixes");
+  document.body.classList.toggle("not-admin", !info.is_admin);
+  $$(".platform-only").forEach((e) => e.classList.toggle("hidden", !info.is_platform_admin));
+  if (info.org_status === "suspended") {
+    $("#keyNotice").innerHTML = `<div class="notice">This organisation's Vantage subscription is not active. Contact Torwood Aerospace Group to restore access.</div>`;
+  }
   if (info.user) {
     $("#userBox").innerHTML = `<span>${esc(info.user.name)}</span><button title="Sign out"><svg><use href="#i-signout"/></svg></button>`;
     $("#userBox button").addEventListener("click", signOut);
@@ -386,6 +393,7 @@ function renderDiagnosis(r, diagnosisId, resolution) {
   const el = $("#result");
   el.classList.remove("hidden");
   const causes = (r.probable_causes || []).slice().sort((a, b) => a.rank - b.rank);
+  const fixes = r.previous_fixes || [];
   const refBtn = (ref, i) => `<li><button data-ref="${i}"><b>${esc([ref.ata, ref.printed_page && "p." + ref.printed_page, ref.subject].filter(Boolean).join(" "))}</b>
     <span class="muted">· ${esc(ref.document)}, file page ${ref.page}${ref.effectivity ? ", " + esc(ref.effectivity) : ""}</span>${ref.verified ? "" : ' <span class="badge-unverified">(not opened by the AI)</span>'}<br>${esc(ref.why)}</button></li>`;
 
@@ -395,9 +403,10 @@ function renderDiagnosis(r, diagnosisId, resolution) {
       <div class="summary md">${md(r.summary)}</div>
       ${r.effectivity_note ? `<div class="hint">Effectivity: ${esc(r.effectivity_note)}</div>` : ""}
     </div>
+    ${fixes.length ? resolvedBox(fixes) : ""}
     <div class="card">
       <div class="card-title">Probable causes</div>
-      ${causes.map((c) => `<div class="cause"><div class="rank" style="background:${colorFor(c.rank)}">${c.rank}</div><div><div class="cause-name">${esc(c.cause)} <span class="chip ${esc(c.likelihood)}">${esc(c.likelihood)}</span></div><p>${esc(c.reasoning)}</p></div></div>`).join("")}
+      ${causes.map((c) => `<div class="cause"><div class="rank" style="background:${colorFor(c.rank)}">${c.rank}</div><div><div class="cause-name">${esc(c.cause)} <span class="chip ${esc(c.likelihood)}">${esc(c.likelihood)}</span>${(c.previous_fix_ids || []).length ? ` <span class="chip resolved" title="Confirmed fix in your Fix Log">Previously resolved${c.previous_fix_ids.length > 1 ? " ×" + c.previous_fix_ids.length : ""}</span>` : ""}</div><p>${esc(c.reasoning)}</p></div></div>`).join("")}
     </div>
     <div class="card">
       <div class="card-title">Isolation steps</div>
@@ -417,10 +426,14 @@ function renderDiagnosis(r, diagnosisId, resolution) {
     ${(r.safety_notes || []).length ? `<div class="card safety"><div class="card-title">Safety</div><ul class="plain">${r.safety_notes.map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div>` : ""}
     ${(r.missing_info || []).length ? `<div class="card"><div class="card-title">Would help narrow it down</div><ul class="plain">${r.missing_info.map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div>` : ""}
     <div class="card">
-      <div class="card-title">Record the confirmed fix</div>
-      ${resolution ? `<div class="fixed">✓ Recorded: ${esc(resolution)}</div>` : `
-      <div class="hint">Once the aircraft is fixed, record what it actually was. Vantage saves it as a troubleshooting note and uses it in future diagnoses.</div>
-      <div class="row"><input id="resolution" placeholder="e.g. Replaced K45: coil open circuit"><button id="saveResolution" class="primary">Save</button></div>`}
+      <div class="card-title">Record the fix</div>
+      ${resolution ? `<div class="fixed">✓ Added to the Fix Log: ${esc(resolution)}</div>` : `
+      <div class="hint">Once the aircraft is fixed, record what fixed it. It is added to your Fix Log and appears as <b>Previously resolved</b> in future diagnoses.</div>
+      <label for="resChecks">What did you find? <span class="muted">(optional)</span></label>
+      <textarea id="resChecks" rows="2" placeholder="e.g. 24 V at K45 coil; G202 ground stud loose"></textarea>
+      <label for="resolution">What fixed it?</label>
+      <textarea id="resolution" rows="2" placeholder="e.g. Cleaned and re-torqued ground stud G202"></textarea>
+      <div class="row end"><button id="saveResolution" class="primary">Add to Fix Log</button></div>`}
     </div>`;
 
   $$("button[data-ref]", el).forEach((b) => b.addEventListener("click", () => {
@@ -430,14 +443,36 @@ function renderDiagnosis(r, diagnosisId, resolution) {
   const save = $("#saveResolution");
   if (save) save.addEventListener("click", async () => {
     const v = $("#resolution").value.trim();
-    if (!v) return;
-    await postJSON(`/api/diagnoses/${currentDiagnosisId}/resolution`, { resolution: v });
-    save.parentElement.outerHTML = `<div class="fixed">✓ Recorded: ${esc(v)}</div>`;
+    if (!v) return $("#resolution").focus();
+    await postJSON(`/api/diagnoses/${currentDiagnosisId}/resolution`, { fix: v, checks: $("#resChecks").value.trim() });
+    save.closest(".card").innerHTML = `<div class="card-title">Record the fix</div><div class="fixed">✓ Added to the Fix Log: ${esc(v)}</div>`;
     refreshInfo();
   });
 
   renderRefTabs();
   if (currentRefs.length) selectRef(0);
+}
+
+function fixEntry(f, withRelevance) { return `<div class="fix">${fixBody(f, withRelevance)}</div>`; }
+
+function fixBody(f, withRelevance) {
+  const meta = [f.aircraft && `Aircraft ${f.aircraft}`, f.system, f.engineer || f.created_by, (f.date || f.created_at || "").slice(0, 10),
+    (f.source === "diagnosis") && "recorded after a Vantage diagnosis"].filter(Boolean).map(esc).join(" · ");
+  return `
+    <div class="fix-line"><span class="k">${f.fix ? "Problem" : "Entry"}</span>${esc(f.symptom || f.title)}${withRelevance && f.match ? `<span class="match ${esc(f.match)}">${f.match === "strong" ? "Strong match" : "Related"}</span>` : ""}</div>
+    ${f.checks ? `<div class="fix-line"><span class="k">Found</span>${esc(f.checks)}</div>` : ""}
+    ${f.fix ? `<div class="fix-line fix-fixed"><span class="k">Fixed by</span>${esc(f.fix)}</div>`
+            : `<div class="fix-line"><span class="k">Notes</span>${esc(f.body || "")}</div>`}
+    ${meta ? `<div class="fix-meta">${meta}</div>` : ""}
+    ${withRelevance && f.relevance ? `<div class="fix-why">${esc(f.relevance)}</div>` : ""}`;
+}
+
+function resolvedBox(fixes) {
+  return `<div class="resolved-box">
+    <div class="resolved-head"><svg><use href="#i-resolved"/></svg><span class="label">Previously resolved</span></div>
+    <div class="resolved-sub">From your Fix Log: your engineers have fixed ${fixes.length === 1 ? "a similar problem" : fixes.length + " similar problems"} before.</div>
+    ${fixes.map((f) => fixEntry(f, true)).join("")}
+  </div>`;
 }
 
 function renderRefTabs() {
@@ -573,8 +608,8 @@ $("#libSearchForm").addEventListener("submit", async (e) => {
   const res = await api(`/api/search?q=${encodeURIComponent(q)}`);
   const out = $("#libResults");
   const pages = res.pages.map((p) => `<div class="hit" data-doc="${p.doc_id}" data-page="${p.page_no}"><div class="h-title">${esc([p.ata, p.page_label && "p." + p.page_label, p.subject].filter(Boolean).join(" ") || "Page " + p.page_no)}</div><div class="h-snip">${esc(p.doc_title)} · file page ${p.page_no}${p.effectivity ? " · " + esc(p.effectivity) : ""}<br>${esc(p.snippet || "")}</div></div>`).join("");
-  const notes = res.notes.map((n) => `<div class="hit" data-note="${n.id}"><div class="h-title">Note: ${esc(n.title)}</div><div class="h-snip">${esc(n.body.slice(0, 200))}</div></div>`).join("");
-  out.innerHTML = pages + notes || `<div class="muted">No matches.</div>`;
+  const fixes = res.fixes.map((n) => `<div class="hit" data-note="${n.id}"><div class="h-title"><span class="chip resolved">Fix Log</span> ${esc(n.symptom || n.title)}</div><div class="h-snip">${n.fix ? "Fixed by: " + esc(n.fix.slice(0, 200)) : esc((n.body || "").slice(0, 200))}</div></div>`).join("");
+  out.innerHTML = fixes + pages || `<div class="muted">No matches.</div>`;
   const terms = q.split(/[\s,]+/).filter((t) => t.length > 1);
   $$(".hit[data-doc]", out).forEach((h) => h.addEventListener("click", async () => {
     await openBrowse(+h.dataset.doc, +h.dataset.page);
@@ -582,34 +617,104 @@ $("#libSearchForm").addEventListener("submit", async (e) => {
     if (narrow()) libViewer.setFull(true);
     $("#findForm").requestSubmit();
   }));
-  $$(".hit[data-note]", out).forEach((h) => h.addEventListener("click", () => showTab("notes")));
+  $$(".hit[data-note]", out).forEach((h) => h.addEventListener("click", () => { $("#fixSearch").value = q; showTab("fixes"); }));
 });
 
-// ===================================================================== notes
-$("#noteForm").addEventListener("submit", async (e) => {
+// ===================================================================== Fix Log
+$("#fixForm").addEventListener("submit", async (e) => {
   e.preventDefault();
+  const msg = $("#fixMsg");
+  msg.className = "msg";
   try {
-    await postJSON("/api/notes", { title: $("#noteTitle").value, body: $("#noteBody").value, tags: $("#noteTags").value, serial: $("#noteSerial").value });
-  } catch (err) { alert(err.message); return; }
-  $("#noteForm").reset();
-  refreshNotes(); refreshInfo();
+    await postJSON("/api/fixes", { symptom: $("#fixSymptom").value, checks: $("#fixChecks").value, fix: $("#fixFix").value,
+      aircraft: $("#fixAircraft").value, system: $("#fixSystem").value, tags: $("#fixTags").value });
+  } catch (err) { msg.className = "msg err"; msg.textContent = err.message; return; }
+  $("#fixForm").reset();
+  msg.textContent = "Saved. Vantage will use it in future diagnoses.";
+  refreshFixes(); refreshInfo();
+});
+$("#fixSearchForm").addEventListener("submit", (e) => { e.preventDefault(); refreshFixes(); });
+$("#fixSearch").addEventListener("search", () => refreshFixes());
+
+async function refreshFixes() {
+  const q = $("#fixSearch").value.trim();
+  const fixes = await api(`/api/fixes${q ? "?q=" + encodeURIComponent(q) : ""}`);
+  $("#fixCount").textContent = q ? `· ${fixes.length} matching` : `· ${fixes.length}`;
+  $("#fixList").innerHTML = fixes.length ? fixes.map((f) => `<div class="fix"><div class="fix-actions"><div>${fixBody(f, false)}</div><button class="small danger" data-del="${f.id}">Delete</button></div></div>`).join("")
+    : `<div class="muted">${q ? "No matching entries." : "No entries yet. Add the problems your engineers have solved, and Vantage will use them in every diagnosis."}</div>`;
+  $$("#fixList [data-del]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("Delete this Fix Log entry?")) return;
+    await api(`/api/fixes/${b.dataset.del}`, { method: "DELETE" });
+    refreshFixes(); refreshInfo();
+  }));
+}
+
+// ===================================================================== organisation & team
+$("#orgForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const msg = $("#orgMsg");
+  try {
+    await api("/api/org", { method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: $("#orgName").value, aircraft_type: $("#orgAircraft").value }) });
+    msg.className = "msg"; msg.textContent = "Saved.";
+    refreshInfo();
+  } catch (err) { msg.className = "msg err"; msg.textContent = err.message; }
 });
 
-async function refreshNotes() {
-  const notes = await api("/api/notes");
-  $("#noteList").innerHTML = notes.length ? notes.map((n) => `<div class="note"><div class="n-head"><div><b>${esc(n.title)}</b><div class="n-meta">${esc(n.created_at)}${n.serial ? " · " + esc(n.serial) : ""}${n.tags ? " · " + esc(n.tags) : ""}${n.source === "diagnosis" ? " · from a diagnosis" : ""}</div></div><button class="small danger" data-del="${n.id}">Delete</button></div><div class="n-body">${esc(n.body)}</div></div>`).join("")
-    : `<div class="muted">No notes yet. Add snags, known issues and fixes; Vantage checks them during every diagnosis.</div>`;
-  $$("#noteList [data-del]").forEach((b) => b.addEventListener("click", async () => {
-    if (!confirm("Delete this note?")) return;
-    await api(`/api/notes/${b.dataset.del}`, { method: "DELETE" });
-    refreshNotes(); refreshInfo();
-  }));
+$("#memberForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const msg = $("#memberMsg");
+  try {
+    await postJSON("/api/org/members", { name: $("#memName").value, email: $("#memEmail").value,
+      password: $("#memPassword").value, is_admin: $("#memAdmin").checked });
+    msg.className = "msg"; msg.textContent = `Added. Give them their email and temporary password to sign in.`;
+    $("#memberForm").reset();
+    refreshOrg();
+  } catch (err) { msg.className = "msg err"; msg.textContent = err.message; }
+});
+
+$("#newOrgForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const msg = $("#newOrgMsg");
+  try {
+    await postJSON("/api/admin/orgs", { name: $("#noName").value, aircraft_type: $("#noAircraft").value,
+      admin_name: $("#noAdminName").value, admin_email: $("#noAdminEmail").value, admin_password: $("#noAdminPw").value });
+    msg.className = "msg"; msg.textContent = "Organisation created. Send the admin their sign-in details.";
+    $("#newOrgForm").reset();
+    refreshOrg();
+  } catch (err) { msg.className = "msg err"; msg.textContent = err.message; }
+});
+
+async function refreshOrg() {
+  const org = await api("/api/org");
+  $("#orgName").value = org.name;
+  $("#orgAircraft").value = org.aircraft_type;
+  if (org.is_admin) {
+    $("#memberList").innerHTML = org.members.map((m) => `<div class="member"><div><b>${esc(m.name || m.email)}</b>${m.is_admin ? '<span class="badge">Admin</span>' : ""}<div class="meta">${esc(m.email)}</div></div>
+      ${m.id === org.you ? '<span class="muted">You</span>' : `<button class="small danger" data-rm="${m.id}">Remove</button>`}</div>`).join("") || `<div class="muted">No team members yet.</div>`;
+    $$("#memberList [data-rm]").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm("Remove this person from your organisation? They will no longer be able to sign in.")) return;
+      await api(`/api/org/members/${b.dataset.rm}`, { method: "DELETE" });
+      refreshOrg();
+    }));
+  }
+  if (!$(".platform-only").classList.contains("hidden")) {
+    const orgs = await api("/api/admin/orgs");
+    $("#orgAdminList").innerHTML = orgs.map((o) => `<div class="org-row"><div><b>${esc(o.name)}</b><span class="badge ${esc(o.status)}">${esc(o.status)}</span>
+      <div class="meta">${esc(o.aircraft_type || "No aircraft type")} · ${o.users} users · ${o.documents} documents · ${o.diagnoses} diagnoses</div></div>
+      <div class="actions">${o.status === "suspended" ? `<button class="small" data-st="active" data-org="${o.id}">Reactivate</button>` : `<button class="small danger" data-st="suspended" data-org="${o.id}">Suspend</button>`}</div></div>`).join("");
+    $$("#orgAdminList [data-st]").forEach((b) => b.addEventListener("click", async () => {
+      if (b.dataset.st === "suspended" && !confirm("Suspend this organisation? Its users will lose access until it is reactivated.")) return;
+      await api(`/api/admin/orgs/${b.dataset.org}/status`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: b.dataset.st }) });
+      refreshOrg();
+    }));
+  }
 }
 
 // ===================================================================== history
 async function refreshHistory() {
   const rows = await api("/api/diagnoses");
-  $("#historyList").innerHTML = rows.length ? rows.map((r) => `<div class="hist" data-id="${r.id}"><div class="h-title">${esc(r.question.slice(0, 160))}</div><div class="h-meta">${esc(r.created_at)}${r.serial ? " · S/N " + esc(r.serial) : ""}${r.system ? " · " + esc(r.system) : ""}</div>${r.resolution ? `<div class="fixed">✓ Fixed: ${esc(r.resolution)}</div>` : ""}</div>`).join("")
+  $("#historyList").innerHTML = rows.length ? rows.map((r) => `<div class="hist" data-id="${r.id}"><div class="h-title">${esc(r.question.slice(0, 160))}</div><div class="h-meta">${esc(r.created_at)}${r.created_by ? " · " + esc(r.created_by) : ""}${r.serial ? " · S/N " + esc(r.serial) : ""}${r.system ? " · " + esc(r.system) : ""}</div>${r.previous_fixes ? ` · <span class="chip resolved">Previously resolved ×${r.previous_fixes}</span>` : ""}${r.resolution ? `<div class="fixed">✓ Fixed: ${esc(r.resolution)}</div>` : ""}</div>`).join("")
     : `<div class="muted">No diagnoses yet.</div>`;
   $$("#historyList .hist").forEach((h) => h.addEventListener("click", async () => {
     const d = await api(`/api/diagnoses/${h.dataset.id}`);
@@ -632,7 +737,7 @@ async function refreshHistory() {
 // ===================================================================== start
 refreshInfo().then((info) => {
   if (!info.api_key_configured) {
-    $("#keyNotice").innerHTML = `<div class="notice">Diagnosis needs an Anthropic API key, and none is set on the server yet. The library, search and notes work without one.</div>`;
+    $("#keyNotice").innerHTML = `<div class="notice">Diagnosis needs an Anthropic API key, and none is set on the server yet. The library, search and Fix Log work without one.</div>`;
   }
   if (!info.documents) showTab("library");
 }).catch(() => {});

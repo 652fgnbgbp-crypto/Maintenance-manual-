@@ -1,4 +1,8 @@
-"""Web server: library management, search, notes, and streaming AI diagnosis."""
+"""Vantage web server: library management, search, the Fix Log, teams, and streaming AI diagnosis.
+
+Vantage is a subscription service: each organisation sees only its own documents, Fix Log and
+diagnoses. Every request is scoped to the signed-in user's organisation.
+"""
 import json
 import os
 import queue
@@ -38,7 +42,11 @@ PUBLIC = ("/login", "/api/login", "/static/", "/manifest.webmanifest", "/favicon
 async def require_login(request: Request, call_next):
     path = request.url.path
     request.state.user = auth.user_for(request.cookies.get(auth.COOKIE))
-    if path.startswith(PUBLIC) or request.state.user or not auth.login_required():
+    user = request.state.user
+    if user and user["org_status"] == "suspended" and path.startswith("/api/") and path not in ("/api/info", "/api/logout"):
+        return JSONResponse({"detail": "This organisation's Vantage subscription is not active. "
+                                       "Contact Torwood Aerospace Group."}, status_code=402)
+    if path.startswith(PUBLIC) or user or not auth.login_required():
         return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"detail": "Please sign in."}, status_code=401)
@@ -89,18 +97,50 @@ def index():
     return FileResponse(STATIC / "index.html")
 
 
+# ------------------------------------------------------------------ request context
+
+
+def ctx(request: Request) -> dict:
+    """Who is asking, and for which organisation. With no users set up (local use) everything is organisation 1."""
+    user = request.state.user
+    if user:
+        return {"org_id": user["org_id"], "name": user["name"] or user["email"], "is_admin": bool(user["is_admin"]),
+                "is_platform_admin": bool(user["is_platform_admin"]), "user_id": user["id"]}
+    return {"org_id": 1, "name": "", "is_admin": True, "is_platform_admin": not auth.login_required(), "user_id": None}
+
+
+def org_row(org_id: int) -> dict:
+    return db.one("SELECT * FROM organisations WHERE id = ?", (org_id,))
+
+
+def doc_or_404(c: dict, doc_id: int) -> dict:
+    doc = db.org_document(c["org_id"], doc_id)
+    if doc is None:
+        raise HTTPException(404, "Document not found.")
+    return doc
+
+
+def require_admin(c: dict) -> None:
+    if not c["is_admin"]:
+        raise HTTPException(403, "Only an organisation administrator can do that.")
+
+
 @app.get("/api/info")
 def info(request: Request):
-    user = request.state.user
+    c = ctx(request)
+    org = org_row(c["org_id"])
+    count = lambda sql: db.one(sql, (c["org_id"],))["n"]  # noqa: E731
     return {
-        "user": {"name": user["name"] or user["email"], "email": user["email"]} if user else None,
+        "user": {"name": c["name"], "email": request.state.user["email"]} if request.state.user else None,
+        "is_admin": c["is_admin"], "is_platform_admin": c["is_platform_admin"],
         "login_required": auth.login_required(),
-        "aircraft_type": config.AIRCRAFT_TYPE,
+        "organisation": org["name"], "org_status": org["status"],
+        "aircraft_type": org["aircraft_type"] or config.AIRCRAFT_TYPE,
         "model": config.DIAGNOSIS_MODEL,
         "api_key_configured": bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")),
-        "documents": db.one("SELECT COUNT(*) AS n FROM documents")["n"],
-        "pages": db.one("SELECT COUNT(*) AS n FROM pages")["n"],
-        "notes": db.one("SELECT COUNT(*) AS n FROM notes")["n"],
+        "documents": count("SELECT COUNT(*) AS n FROM documents WHERE org_id = ?"),
+        "pages": count("SELECT COUNT(*) AS n FROM pages p JOIN documents d ON d.id = p.doc_id WHERE d.org_id = ?"),
+        "fixes": count("SELECT COUNT(*) AS n FROM notes WHERE org_id = ?"),
     }
 
 
@@ -108,8 +148,8 @@ def info(request: Request):
 
 
 @app.get("/api/documents")
-def list_documents():
-    return db.query("SELECT * FROM documents ORDER BY id DESC")
+def list_documents(request: Request):
+    return db.query("SELECT * FROM documents WHERE org_id = ? ORDER BY id DESC", (ctx(request)["org_id"],))
 
 
 def _process_upload(doc_id: int, run_enrich: bool) -> None:
@@ -123,18 +163,20 @@ def _process_upload(doc_id: int, run_enrich: bool) -> None:
 
 @app.post("/api/documents")
 async def upload_document(
+    request: Request,
     background: BackgroundTasks,
     file: UploadFile = File(...),
     title: str = Form(""),
     category: str = Form("manual"),
     enrich_with_ai: bool = Form(False),
 ):
+    c = ctx(request)
     suffix = Path(file.filename or "upload").suffix
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         shutil.copyfileobj(file.file, tmp)
         tmp_path = Path(tmp.name)
     try:
-        doc_id = ingest.create_document(tmp_path, file.filename or "upload", title.strip() or None, category)
+        doc_id = ingest.create_document(tmp_path, file.filename or "upload", title.strip() or None, category, c["org_id"])
     except ValueError as e:
         raise HTTPException(400, str(e))
     finally:
@@ -144,10 +186,8 @@ async def upload_document(
 
 
 @app.delete("/api/documents/{doc_id}")
-def delete_document(doc_id: int):
-    doc = db.one("SELECT * FROM documents WHERE id = ?", (doc_id,))
-    if doc is None:
-        raise HTTPException(404)
+def delete_document(doc_id: int, request: Request):
+    doc = doc_or_404(ctx(request), doc_id)
     db.delete_document(doc_id)
     ingest.file_path(doc).unlink(missing_ok=True)
     for f in config.CACHE_DIR.glob(f"{doc['stored_name']}.*"):
@@ -156,10 +196,8 @@ def delete_document(doc_id: int):
 
 
 @app.post("/api/documents/{doc_id}/enrich")
-def start_enrich(doc_id: int):
-    doc = db.one("SELECT * FROM documents WHERE id = ?", (doc_id,))
-    if doc is None:
-        raise HTTPException(404)
+def start_enrich(doc_id: int, request: Request):
+    doc = doc_or_404(ctx(request), doc_id)
     if doc["enrich_status"] == "running":
         return doc
     enrich.start_background(doc_id)
@@ -167,27 +205,29 @@ def start_enrich(doc_id: int):
 
 
 @app.get("/api/documents/{doc_id}/pages")
-def list_pages(doc_id: int):
+def list_pages(doc_id: int, request: Request):
+    doc_or_404(ctx(request), doc_id)
     return db.query(
         "SELECT id, doc_id, page_no, ata, page_label, subject, effectivity, page_type, ai_summary IS NOT NULL AS enriched "
         "FROM pages WHERE doc_id = ? ORDER BY page_no", (doc_id,))
 
 
 @app.get("/api/pages/{doc_id}/{page_no}")
-def page_detail(doc_id: int, page_no: int):
+def page_detail(doc_id: int, page_no: int, request: Request):
+    doc = doc_or_404(ctx(request), doc_id)
     page = ingest.get_page(doc_id, page_no)
     if page is None:
         raise HTTPException(404)
-    doc = db.one("SELECT page_count FROM documents WHERE id = ?", (doc_id,))
     return {**page, "page_count": doc["page_count"], "has_image": page["doc_kind"] != "text"}
 
 
 @app.get("/api/pages/{doc_id}/{page_no}/image")
-def page_image(doc_id: int, page_no: int):
+def page_image(doc_id: int, page_no: int, request: Request):
+    doc_or_404(ctx(request), doc_id)
     png = ingest.render_page(doc_id, page_no, config.VIEW_IMAGE_LONG_EDGE)
     if png is None:
         raise HTTPException(404)
-    return Response(png, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
+    return Response(png, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
 
 
 class LocateBody(BaseModel):
@@ -195,41 +235,52 @@ class LocateBody(BaseModel):
 
 
 @app.post("/api/pages/{doc_id}/{page_no}/locate")
-def locate(doc_id: int, page_no: int, body: LocateBody):
+def locate(doc_id: int, page_no: int, body: LocateBody, request: Request):
+    doc_or_404(ctx(request), doc_id)
     return highlight.locate_terms(doc_id, page_no, [t for t in body.terms if t.strip()][:20])
 
 
 @app.get("/api/search")
-def search_all(q: str, limit: int = 20):
-    return {"pages": search.search_pages(q, limit=limit), "notes": search.search_notes(q, limit=10)}
+def search_all(q: str, request: Request, limit: int = 20):
+    org_id = ctx(request)["org_id"]
+    return {"pages": search.search_pages(q, limit=limit, org_id=org_id),
+            "fixes": search.search_notes(q, limit=10, org_id=org_id)}
 
 
-# ------------------------------------------------------------------ notes
+# ------------------------------------------------------------------ Fix Log
 
 
-class NoteBody(BaseModel):
-    title: str
-    body: str
+class FixBody(BaseModel):
+    symptom: str
+    fix: str
+    checks: str = ""
+    system: str = ""
+    aircraft: str = ""
     tags: str = ""
-    serial: str = ""
 
 
-@app.get("/api/notes")
-def list_notes():
-    return db.query("SELECT * FROM notes ORDER BY id DESC")
+@app.get("/api/fixes")
+def list_fixes(request: Request, q: str = ""):
+    org_id = ctx(request)["org_id"]
+    if q.strip():
+        return search.search_notes(q, limit=50, org_id=org_id)
+    return db.query("SELECT * FROM notes WHERE org_id = ? ORDER BY id DESC", (org_id,))
 
 
-@app.post("/api/notes")
-def create_note(note: NoteBody):
-    if not note.title.strip() or not note.body.strip():
-        raise HTTPException(400, "Title and details are required.")
-    nid = db.add_note(note.title.strip(), note.body.strip(), note.tags.strip(), note.serial.strip())
+@app.post("/api/fixes")
+def create_fix(body: FixBody, request: Request):
+    c = ctx(request)
+    if not body.symptom.strip() or not body.fix.strip():
+        raise HTTPException(400, "Enter the symptom and what fixed it.")
+    nid = db.add_fix(c["org_id"], body.symptom.strip(), body.fix.strip(), body.checks.strip(), body.system.strip(),
+                     body.aircraft.strip(), body.tags.strip(), created_by=c["name"])
     return db.one("SELECT * FROM notes WHERE id = ?", (nid,))
 
 
-@app.delete("/api/notes/{note_id}")
-def remove_note(note_id: int):
-    db.delete_note(note_id)
+@app.delete("/api/fixes/{note_id}")
+def remove_fix(note_id: int, request: Request):
+    if not db.delete_note(note_id, ctx(request)["org_id"]):
+        raise HTTPException(404)
     return {"ok": True}
 
 
@@ -247,10 +298,13 @@ def _sse(event: dict) -> str:
 
 
 @app.post("/api/diagnose")
-def diagnose(body: DiagnoseBody):
+def diagnose(body: DiagnoseBody, request: Request):
+    c = ctx(request)
     if not body.question.strip():
         raise HTTPException(400, "Describe the problem first.")
-    session = agent.get_or_create_session(body.session_id, body.serial.strip())
+    org = org_row(c["org_id"])
+    session = agent.get_or_create_session(body.session_id, body.serial.strip(), c["org_id"],
+                                          org["aircraft_type"], c["name"])
     events: queue.Queue = queue.Queue()
 
     def worker():
@@ -281,18 +335,20 @@ def diagnose(body: DiagnoseBody):
 
 
 @app.get("/api/diagnoses")
-def list_diagnoses():
-    rows = db.query("SELECT id, question, serial, resolution, created_at, result FROM diagnoses ORDER BY id DESC LIMIT 100")
+def list_diagnoses(request: Request):
+    rows = db.query("SELECT id, question, serial, resolution, created_at, created_by, result FROM diagnoses "
+                    "WHERE org_id = ? ORDER BY id DESC LIMIT 200", (ctx(request)["org_id"],))
     for r in rows:
         res = json.loads(r.pop("result") or "{}")
         r["summary"] = res.get("summary", "")
         r["system"] = res.get("system", "")
+        r["previous_fixes"] = len(res.get("previous_fixes", []))
     return rows
 
 
 @app.get("/api/diagnoses/{diag_id}")
-def get_diagnosis(diag_id: int):
-    row = db.one("SELECT * FROM diagnoses WHERE id = ?", (diag_id,))
+def get_diagnosis(diag_id: int, request: Request):
+    row = db.one("SELECT * FROM diagnoses WHERE id = ? AND org_id = ?", (diag_id, ctx(request)["org_id"]))
     if row is None:
         raise HTTPException(404)
     row["result"] = json.loads(row["result"] or "{}")
@@ -301,20 +357,135 @@ def get_diagnosis(diag_id: int):
 
 
 class ResolutionBody(BaseModel):
-    resolution: str
+    fix: str
+    checks: str = ""
 
 
 @app.post("/api/diagnoses/{diag_id}/resolution")
-def record_resolution(diag_id: int, body: ResolutionBody):
-    """Record what actually fixed the aircraft; it becomes a troubleshooting note for future diagnoses."""
-    row = db.one("SELECT * FROM diagnoses WHERE id = ?", (diag_id,))
+def record_resolution(diag_id: int, body: ResolutionBody, request: Request):
+    """Record what actually fixed the aircraft. It goes into the Fix Log for future diagnoses."""
+    c = ctx(request)
+    row = db.one("SELECT * FROM diagnoses WHERE id = ? AND org_id = ?", (diag_id, c["org_id"]))
     if row is None:
         raise HTTPException(404)
+    if not body.fix.strip():
+        raise HTTPException(400, "Enter what fixed it.")
     res = json.loads(row["result"] or "{}")
     with db.tx() as conn:
-        conn.execute("UPDATE diagnoses SET resolution = ? WHERE id = ?", (body.resolution, diag_id))
-    body_text = (f"Reported problem: {row['question']}\n\nConfirmed fix: {body.resolution}\n\n"
-                 f"AI diagnosis at the time: {res.get('summary', '')}")
-    db.add_note(f"Confirmed fix: {res.get('system') or row['question'][:60]}", body_text,
-                tags="confirmed-fix", serial=row["serial"], source="diagnosis")
+        conn.execute("UPDATE diagnoses SET resolution = ? WHERE id = ?", (body.fix.strip(), diag_id))
+    db.add_fix(c["org_id"], row["question"].replace("(follow-up) ", ""), body.fix.strip(), body.checks.strip(),
+               res.get("system", ""), row["serial"], created_by=c["name"], source="diagnosis")
     return {"ok": True}
+
+
+# ------------------------------------------------------------------ organisation & team
+
+
+class OrgBody(BaseModel):
+    name: str
+    aircraft_type: str
+
+
+class MemberBody(BaseModel):
+    email: str
+    name: str = ""
+    password: str
+    is_admin: bool = False
+
+
+@app.get("/api/org")
+def get_org(request: Request):
+    c = ctx(request)
+    org = org_row(c["org_id"])
+    return {**org, "members": auth.members(c["org_id"]) if c["is_admin"] else [], "is_admin": c["is_admin"],
+            "you": c["user_id"]}
+
+
+@app.put("/api/org")
+def update_org(body: OrgBody, request: Request):
+    c = ctx(request)
+    require_admin(c)
+    if not body.name.strip():
+        raise HTTPException(400, "Enter the organisation name.")
+    with db.tx() as conn:
+        conn.execute("UPDATE organisations SET name = ?, aircraft_type = ? WHERE id = ?",
+                     (body.name.strip(), body.aircraft_type.strip(), c["org_id"]))
+    return org_row(c["org_id"])
+
+
+@app.post("/api/org/members")
+def add_member(body: MemberBody, request: Request):
+    c = ctx(request)
+    require_admin(c)
+    try:
+        auth.add_user(body.email, body.password, body.name, body.is_admin, org_id=c["org_id"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
+@app.delete("/api/org/members/{user_id}")
+def delete_member(user_id: int, request: Request):
+    c = ctx(request)
+    require_admin(c)
+    if user_id == c["user_id"]:
+        raise HTTPException(400, "You can't remove yourself.")
+    if not auth.remove_user(c["org_id"], user_id):
+        raise HTTPException(404)
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ platform administration (Torwood staff)
+
+
+class NewOrgBody(BaseModel):
+    name: str
+    aircraft_type: str = ""
+    admin_email: str
+    admin_name: str = ""
+    admin_password: str
+
+
+class OrgStatusBody(BaseModel):
+    status: str
+
+
+def require_platform_admin(request: Request) -> None:
+    if not ctx(request)["is_platform_admin"]:
+        raise HTTPException(403, "Torwood platform administrators only.")
+
+
+@app.get("/api/admin/orgs")
+def admin_orgs(request: Request):
+    require_platform_admin(request)
+    return db.query(
+        "SELECT o.*, (SELECT COUNT(*) FROM users u WHERE u.org_id = o.id) AS users, "
+        "(SELECT COUNT(*) FROM documents d WHERE d.org_id = o.id) AS documents, "
+        "(SELECT COUNT(*) FROM diagnoses x WHERE x.org_id = o.id) AS diagnoses FROM organisations o ORDER BY o.name")
+
+
+@app.post("/api/admin/orgs")
+def admin_create_org(body: NewOrgBody, request: Request):
+    require_platform_admin(request)
+    if not body.name.strip():
+        raise HTTPException(400, "Enter the organisation name.")
+    if db.one("SELECT id FROM users WHERE email = ?", (body.admin_email.strip(),)):
+        raise HTTPException(400, "A user with that email already exists.")
+    org_id = auth.create_org(body.name, body.aircraft_type)
+    try:
+        auth.add_user(body.admin_email, body.admin_password, body.admin_name, is_admin=True, org_id=org_id)
+    except ValueError as e:
+        with db.tx() as conn:
+            conn.execute("DELETE FROM organisations WHERE id = ?", (org_id,))
+        raise HTTPException(400, str(e))
+    return org_row(org_id)
+
+
+@app.put("/api/admin/orgs/{org_id}/status")
+def admin_org_status(org_id: int, body: OrgStatusBody, request: Request):
+    require_platform_admin(request)
+    if body.status not in ("trial", "active", "suspended"):
+        raise HTTPException(400, "Status must be trial, active or suspended.")
+    with db.tx() as conn:
+        conn.execute("UPDATE organisations SET status = ? WHERE id = ?", (body.status, org_id))
+    return org_row(org_id)
