@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MX Diagnostic Assistant</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>
+    <div>
+      <div class="brand-name">MX Diagnostic Assistant</div>
+      <div class="brand-sub" id="aircraftType">—</div>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="diagnose">Diagnose</button>
+    <button class="tab" data-tab="library">Library</button>
+    <button class="tab" data-tab="notes">Notes</button>
+    <button class="tab" data-tab="history">History</button>
+  </nav>
+  <div class="stats" id="stats"></div>
+</header>
+
+<main>
+  <!-- ============================================================ DIAGNOSE -->
+  <section id="tab-diagnose" class="panel active">
+    <div class="split">
+      <div class="col-left">
+        <form id="diagForm" class="card">
+          <label for="question">Describe the problem</label>
+          <textarea id="question" rows="5" placeholder="e.g. On battery start, No.1 battery contactor will not close. Battery switch ON, no voltage on the battery bus. No.2 side works normally."></textarea>
+          <div class="row">
+            <div class="field">
+              <label for="serial">Aircraft serial no. <span class="muted">(for effectivity)</span></label>
+              <input id="serial" placeholder="e.g. 0123">
+            </div>
+            <button type="submit" class="primary" id="diagBtn">Diagnose</button>
+          </div>
+        </form>
+
+        <div id="progress" class="card hidden">
+          <div class="card-title"><span class="spinner" id="spinner"></span><span id="progressTitle">Working…</span></div>
+          <ol id="trace" class="trace"></ol>
+        </div>
+
+        <div id="result" class="hidden"></div>
+
+        <form id="followForm" class="card hidden">
+          <label for="followup">Follow-up or test result</label>
+          <textarea id="followup" rows="3" placeholder="e.g. Measured 24 V at K45 coil terminal X1 with switch ON, contactor still does not close."></textarea>
+          <div class="row end"><button class="primary" type="submit">Send</button></div>
+        </form>
+      </div>
+
+      <div class="col-right">
+        <div class="card viewer-card">
+          <div class="ref-tabs" id="refTabs"><div class="empty">Referenced diagrams appear here with the relevant components highlighted.</div></div>
+          <div class="ref-why" id="refWhy"></div>
+          <div class="viewer" id="diagViewer"></div>
+          <div class="legend" id="refLegend"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ LIBRARY -->
+  <section id="tab-library" class="panel">
+    <div class="split">
+      <div class="col-left">
+        <form id="uploadForm" class="card">
+          <div class="card-title">Add maintenance data</div>
+          <label for="file">File <span class="muted">(PDF manuals &amp; wiring diagrams, photos/scans, .txt/.md notes)</span></label>
+          <input type="file" id="file" multiple accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.gif,.txt,.md,.csv,.log">
+          <div class="row">
+            <div class="field"><label for="docTitle">Title <span class="muted">(optional)</span></label><input id="docTitle" placeholder="Defaults to the file name"></div>
+            <div class="field narrow"><label for="category">Type</label>
+              <select id="category">
+                <option value="manual">Manual</option>
+                <option value="wiring">Wiring diagram</option>
+                <option value="service-bulletin">Service bulletin</option>
+                <option value="notes">Notes / logs</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+          <label class="check"><input type="checkbox" id="enrichAI"> Read every page with AI after upload <span class="muted">(better search on scanned pages; uses API credits)</span></label>
+          <div class="row end"><button class="primary" type="submit">Upload</button></div>
+          <div id="uploadMsg" class="msg"></div>
+        </form>
+
+        <div class="card">
+          <div class="card-title">Documents</div>
+          <div id="docList" class="doc-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Search the library</div>
+          <form id="libSearchForm" class="row"><input id="libSearch" placeholder="e.g. K45, P86B12, battery contactor, 24-30-02"><button type="submit">Search</button></form>
+          <div id="libResults" class="results"></div>
+        </div>
+      </div>
+
+      <div class="col-right">
+        <div class="card viewer-card">
+          <div class="browse-bar">
+            <select id="browseDoc"></select>
+            <button id="prevPage" title="Previous page">‹</button>
+            <select id="browsePage"></select>
+            <button id="nextPage" title="Next page">›</button>
+          </div>
+          <div class="browse-meta" id="browseMeta"></div>
+          <form id="findForm" class="row"><input id="findTerms" placeholder="Highlight on this page, comma-separated (e.g. K45, P86B12)"><button type="submit">Highlight</button></form>
+          <div class="viewer" id="libViewer"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ NOTES -->
+  <section id="tab-notes" class="panel">
+    <div class="split">
+      <div class="col-left">
+        <form id="noteForm" class="card">
+          <div class="card-title">Add a troubleshooting note</div>
+          <label for="noteTitle">Title</label>
+          <input id="noteTitle" placeholder="e.g. Intermittent No.1 battery contactor — corroded ground G202">
+          <div class="row">
+            <div class="field"><label for="noteSerial">Aircraft (serial / reg.)</label><input id="noteSerial" placeholder="optional"></div>
+            <div class="field"><label for="noteTags">Tags</label><input id="noteTags" placeholder="e.g. battery, 24-30-02, K45"></div>
+          </div>
+          <label for="noteBody">Details: symptom, what was checked, what fixed it</label>
+          <textarea id="noteBody" rows="8"></textarea>
+          <div class="row end"><button class="primary" type="submit">Save note</button></div>
+        </form>
+      </div>
+      <div class="col-right">
+        <div class="card"><div class="card-title">Notes on file</div><div id="noteList"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ HISTORY -->
+  <section id="tab-history" class="panel">
+    <div class="card"><div class="card-title">Past diagnoses</div><div id="historyList"></div></div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
