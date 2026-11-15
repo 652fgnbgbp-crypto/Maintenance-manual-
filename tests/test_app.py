@@ -171,6 +171,10 @@ def test_agent_loop_produces_highlighted_diagnosis(app_env):
     assert fixes[0]["fix"] == "Cleaned and re-torqued ground stud G202"
     assert fixes[0]["aircraft"] == "0145" and fixes[0]["engineer"] == "J. Smith" and fixes[0]["verified"] is True
     assert out["result"]["probable_causes"][0]["previous_fix_ids"] == [fix_id]
+    other = db.add_fix(1, "Unrelated: cabin fan inop", "Replaced blower")
+    unseen = agent.build_result({"previous_fixes": [{"note_id": other, "match": "partial", "relevance": ""}],
+                                 "probable_causes": [], "references": []}, set(), 1, seen_notes={fix_id})
+    assert unseen["previous_fixes"] == []  # cited but never retrieved by search_notes: dropped
 
     # the page image went to the model, and the notes search found the note
     view_result = client.requests[2]["messages"][-1]["content"][0]["content"]

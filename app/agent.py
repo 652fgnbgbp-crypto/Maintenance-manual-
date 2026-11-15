@@ -328,7 +328,8 @@ def build_result(diag: dict, viewed: set, org_id: int = 1, seen_notes: set | Non
     fixes = []
     for pf in diag.get("previous_fixes", []):
         n = db.one("SELECT * FROM notes WHERE id = ? AND org_id = ?", (pf["note_id"], org_id))
-        if n is not None:
+        # only entries the AI actually retrieved in this conversation (seen_notes is None when rebuilding a saved result)
+        if n is not None and (seen_notes is None or n["id"] in seen_notes):
             fixes.append({**_fix_card(n), "match": pf.get("match", "partial"), "relevance": pf.get("relevance", ""),
                           "verified": seen_notes is None or n["id"] in seen_notes})
     known = {f["note_id"] for f in fixes}
