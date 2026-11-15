@@ -302,8 +302,18 @@ def test_organisations_are_isolated(app_env):
     assert a.delete(f"/api/org/members/{bob_id}").status_code == 404
     assert a.get("/api/admin/orgs").status_code == 403
 
-    # Torwood staff can suspend a subscription
+    # Torwood staff can read every subscriber's Fix Log; subscribers cannot
     staff = client_for("staff@torwood.example", "password-t1")
+    b.post("/api/fixes", json={"symptom": "Prop sync hunting", "fix": "Replaced synchrophaser pickup"})
+    all_fixes = staff.get("/api/admin/fixes").json()
+    assert {f["org_name"] for f in all_fixes} >= {"Alpha Aviation", "Bravo Air"}
+    assert [f["org_name"] for f in staff.get("/api/admin/fixes", params={"org_id": org_b}).json()] == ["Bravo Air"]
+    assert staff.get("/api/admin/fixes", params={"q": "synchrophaser"}).json()[0]["org_name"] == "Bravo Air"
+    assert a.get("/api/admin/fixes").status_code == 403 and b.get("/api/admin/fixes").status_code == 403
+    assert [f["symptom"] for f in a.get("/api/fixes").json()] == ["K45 drops out"]
+    assert staff.get("/api/fixes").json() == []  # Torwood's own organisation log stays separate
+
+    # Torwood staff can suspend a subscription
     assert {o["name"] for o in staff.get("/api/admin/orgs").json()} >= {"Alpha Aviation", "Bravo Air"}
     assert staff.put(f"/api/admin/orgs/{org_b}/status", json={"status": "suspended"}).status_code == 200
     assert b.get("/api/documents").status_code == 402

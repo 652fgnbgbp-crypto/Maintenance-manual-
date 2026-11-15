@@ -481,6 +481,20 @@ def admin_create_org(body: NewOrgBody, request: Request):
     return org_row(org_id)
 
 
+@app.get("/api/admin/fixes")
+def admin_fixes(request: Request, q: str = "", org_id: int | None = None):
+    """Every subscriber's Fix Log, read-only. Torwood platform administrators only."""
+    require_platform_admin(request)
+    if q.strip():
+        return search.search_notes(q, limit=200, org_id=org_id)
+    sql = "SELECT n.*, o.name AS org_name FROM notes n JOIN organisations o ON o.id = n.org_id"
+    params: tuple = ()
+    if org_id is not None:
+        sql += " WHERE n.org_id = ?"
+        params = (org_id,)
+    return db.query(sql + " ORDER BY n.id DESC LIMIT 500", params)
+
+
 @app.put("/api/admin/orgs/{org_id}/status")
 def admin_org_status(org_id: int, body: OrgStatusBody, request: Request):
     require_platform_admin(request)

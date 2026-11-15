@@ -38,6 +38,13 @@ Vantage is a website that organisations subscribe to. Each subscribing organisat
 - **A status:** `trial`, `active` or `suspended`. A suspended organisation's users can sign in,
   but they see a notice and can't use the data until it is reactivated.
 
+**Fix Log access.** A subscriber's Fix Log is visible only to that subscriber's own users, and its
+diagnoses draw only on its own entries. Torwood platform administrators can also read every
+subscriber's Fix Log, read-only. On the Fix Log page, a *Showing* selector switches between your own
+organisation, all subscribers, or a single subscriber. Subscribers can't see this selector, and the
+server refuses those requests from them. **Tell subscribers about this access in the subscription
+terms and privacy policy.** Entries contain their engineers' names and their aircraft details.
+
 **Torwood staff** are platform administrators. On the Organisation page they also see a
 **Subscribers** section, where they can create an organisation with its first administrator and
 suspend or reactivate an organisation. The same tasks are available from the command line:

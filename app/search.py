@@ -57,15 +57,19 @@ def search_pages(text: str, limit: int = 8, doc_id: int | None = None, page_type
         return []
 
 
-def search_notes(text: str, limit: int = 6, org_id: int = 1) -> list[dict]:
+def search_notes(text: str, limit: int = 6, org_id: int | None = 1) -> list[dict]:
+    """Search one organisation's Fix Log. org_id=None searches every organisation: only for the
+    Torwood platform-admin view, never for a subscriber's request."""
     q = fts_query(text)
     if not q:
         return []
+    sql = ("SELECT n.*, o.name AS org_name, bm25(notes_fts) AS score FROM notes_fts "
+           "JOIN notes n ON n.id = notes_fts.rowid JOIN organisations o ON o.id = n.org_id WHERE notes_fts MATCH ?")
+    params: list = [q]
+    if org_id is not None:
+        sql += " AND n.org_id = ?"
+        params.append(org_id)
     try:
-        return db.query(
-            "SELECT n.*, bm25(notes_fts) AS score FROM notes_fts JOIN notes n ON n.id = notes_fts.rowid "
-            "WHERE notes_fts MATCH ? AND n.org_id = ? ORDER BY score LIMIT ?",
-            (q, org_id, limit),
-        )
+        return db.query(sql + " ORDER BY score LIMIT ?", (*params, limit))
     except Exception:
         return []

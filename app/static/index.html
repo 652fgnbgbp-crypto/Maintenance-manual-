@@ -218,6 +218,10 @@
       <div class="pane pane-right scroll">
         <div class="card">
           <div class="card-title">Resolved defects <span class="count" id="fixCount"></span></div>
+          <div class="platform-only hidden scope-row">
+            <label for="fixScope">Showing <span class="muted">· Torwood administration</span></label>
+            <select id="fixScope"><option value="own">Your organisation</option><option value="all">All subscribers (read-only)</option></select>
+          </div>
           <form id="fixSearchForm" class="search-row"><svg><use href="#i-search"/></svg><input id="fixSearch" type="search" placeholder="Search the Fix Log"><button type="submit">Search</button></form>
           <div id="fixList"></div>
         </div>

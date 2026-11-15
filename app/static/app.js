@@ -636,11 +636,27 @@ $("#fixForm").addEventListener("submit", async (e) => {
 $("#fixSearchForm").addEventListener("submit", (e) => { e.preventDefault(); refreshFixes(); });
 $("#fixSearch").addEventListener("search", () => refreshFixes());
 
+let scopeLoaded = false;
+async function loadScopeOptions() {
+  if (scopeLoaded || $(".scope-row").classList.contains("hidden")) return;
+  scopeLoaded = true;
+  const orgs = await api("/api/admin/orgs");
+  $("#fixScope").insertAdjacentHTML("beforeend", orgs.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join(""));
+}
+$("#fixScope").addEventListener("change", () => refreshFixes());
+
 async function refreshFixes() {
+  await loadScopeOptions();
   const q = $("#fixSearch").value.trim();
-  const fixes = await api(`/api/fixes${q ? "?q=" + encodeURIComponent(q) : ""}`);
+  const scope = $(".scope-row").classList.contains("hidden") ? "own" : $("#fixScope").value;
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (scope !== "own" && scope !== "all") params.set("org_id", scope);
+  const base = scope === "own" ? "/api/fixes" : "/api/admin/fixes";
+  const fixes = await api(`${base}${params.toString() ? "?" + params : ""}`);
+  const readOnly = scope !== "own";
   $("#fixCount").textContent = q ? `· ${fixes.length} matching` : `· ${fixes.length}`;
-  $("#fixList").innerHTML = fixes.length ? fixes.map((f) => `<div class="fix"><div class="fix-actions"><div>${fixBody(f, false)}</div><button class="small danger" data-del="${f.id}">Delete</button></div></div>`).join("")
+  $("#fixList").innerHTML = fixes.length ? fixes.map((f) => `<div class="fix"><div class="fix-actions"><div>${readOnly ? `<span class="org-tag">${esc(f.org_name)}</span>` : ""}${fixBody(f, false)}</div>${readOnly ? "" : `<button class="small danger" data-del="${f.id}">Delete</button>`}</div></div>`).join("")
     : `<div class="muted">${q ? "No matching entries." : "No entries yet. Add the problems your engineers have solved, and Vantage will use them in every diagnosis."}</div>`;
   $$("#fixList [data-del]").forEach((b) => b.addEventListener("click", async () => {
     if (!confirm("Delete this Fix Log entry?")) return;
