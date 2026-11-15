@@ -1,9 +1,11 @@
-# MX Diagnostic Assistant
+# Vantage
 
-An AI-assisted maintenance library for one aircraft type. You upload your manuals, wiring
-diagrams and troubleshooting notes. Then you describe a defect, and the AI diagnoses it **from your
-data**. It shows how it reached the answer and opens the schematic pages it used, with the
-relevant components and wires highlighted.
+**AI-assisted maintenance manuals, by Torwood Aerospace Group.**
+
+Vantage is a maintenance library for one aircraft type. You upload your manuals, wiring diagrams
+and troubleshooting notes. Then you describe a defect, and the AI diagnoses it **from your data**.
+It shows how it reached the answer and opens the schematic pages it used, with the relevant
+components and wires highlighted. Vantage is designed to be used mainly on an iPad.
 
 Built and tested against the *Cessna Model 441 Conquest / Conquest II Electrical Troubleshooting
 Manual*, a 354-page scanned PDF with an OCR text layer.
@@ -23,7 +25,46 @@ Manual*, a 354-page scanned PDF with an OCR text layer.
 Every page the AI cites is one it opened during that diagnosis. A cited page it did not open is
 flagged in the answer.
 
-## Setup
+## Using it on an iPad
+
+- **Layout:** in landscape, navigation sits on the left, with the diagnosis and the diagram side by
+  side. In portrait, tabs run along the bottom, and tapping a reference opens the diagram full screen.
+- **Diagrams:** pinch to zoom, drag to move, and double-tap to zoom in or back out. Tap a highlight
+  to see why it matters, or tap an item in the legend to jump to it.
+- **Typing:** tap the microphone on the iPad keyboard to dictate a defect.
+- **Adding pages:** in the Library, **Take photo** adds a page straight from the camera.
+- **Install it like an app:** open Vantage in Safari, tap **Share → Add to Home Screen**. It then
+  opens full screen from its own icon.
+
+## Hosting online
+
+Vantage runs on a server, and iPads open it in Safari. The repository includes a `Dockerfile`, so it
+runs on any container host (Render, Railway, Fly.io, or your own server):
+
+1. Create a web service from this repository using the Dockerfile.
+2. Attach a **persistent disk** mounted at `/data`. This holds the library database, the uploaded
+   manuals and the page cache. Without it, uploads are lost on every restart.
+3. Set these environment variables:
+   - `ANTHROPIC_API_KEY`
+   - `MX_AIRCRAFT_TYPE`
+   - `VANTAGE_ADMIN_EMAIL` and `VANTAGE_ADMIN_PASSWORD` (creates the first sign-in)
+4. Open the service's https address on the iPad and sign in.
+
+Sign-in is required as soon as one user exists. Add more users from the server's shell:
+
+```bash
+python -m app.cli add-user tech@example.com --name "A. Technician"
+python -m app.cli set-password tech@example.com
+```
+
+Running locally with no users configured skips sign-in, which is convenient on your own computer.
+
+## Theme
+
+All colours and fonts are in `app/static/theme.css`. They are placeholders until the Torwood /
+AeroQuiz brand values are supplied.
+
+## Setup (local)
 
 Requires Python 3.10+.
 
@@ -77,8 +118,9 @@ app/
   agent.py      the diagnosis agent: Claude with tools search_library, view_page (page image + OCR text),
                 search_notes, locate_on_page, submit_diagnosis (structured result)
   enrich.py     optional per-page AI reading
+  auth.py       users, hashed passwords and sign-in sessions
   main.py       FastAPI server; the diagnosis streams its progress to the browser (server-sent events)
-  static/       browser UI (no build step)
+  static/       browser UI (no build step), iPad-first; theme.css holds the brand colours and fonts
 ```
 
 Notes on the Claude API usage:

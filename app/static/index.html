@@ -2,42 +2,88 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MX Diagnostic Assistant</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vantage</title>
+<meta name="description" content="Vantage: AI-assisted maintenance manuals and troubleshooting, by Torwood Aerospace Group.">
+<meta name="theme-color" content="#0b2545">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vantage">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="icon" href="/static/icons/icon-192.png">
+<link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>
-    <div>
-      <div class="brand-name">MX Diagnostic Assistant</div>
-      <div class="brand-sub" id="aircraftType">—</div>
-    </div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-diagnose" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+  <symbol id="i-library" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6.5A2.5 2.5 0 0 0 4 21.5 2.5 2.5 0 0 0 6.5 24H19M8 7h7M8 11h7"/></symbol>
+  <symbol id="i-notes" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 3"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 12h14"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path stroke="currentColor" stroke-width="2" stroke-linecap="round" d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-chev-l" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-signout" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+  <symbol id="i-new" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4zM3 6h6M6 3v6"/></symbol>
+  <symbol id="i-mark" viewBox="0 0 40 40"><path fill="currentColor" d="M4 7h8.5L20 27.5 27.5 7H36L23.5 35h-7z"/><path fill="currentColor" opacity=".55" d="M17.5 7h5L20 14z"/></symbol>
+</svg>
+
+<!-- Navigation: side rail on iPad landscape, bottom tab bar in portrait -->
+<aside class="rail">
+  <div class="rail-brand">
+    <svg class="mark"><use href="#i-mark"/></svg>
+    <span class="wordmark">Vantage</span>
   </div>
-  <nav class="tabs" role="tablist">
-    <button class="tab active" data-tab="diagnose">Diagnose</button>
-    <button class="tab" data-tab="library">Library</button>
-    <button class="tab" data-tab="notes">Notes</button>
-    <button class="tab" data-tab="history">History</button>
+  <nav class="rail-nav">
+    <button class="nav-btn active" data-tab="diagnose"><svg><use href="#i-diagnose"/></svg><span>Diagnose</span></button>
+    <button class="nav-btn" data-tab="library"><svg><use href="#i-library"/></svg><span>Library</span></button>
+    <button class="nav-btn" data-tab="notes"><svg><use href="#i-notes"/></svg><span>Notes</span></button>
+    <button class="nav-btn" data-tab="history"><svg><use href="#i-history"/></svg><span>History</span></button>
   </nav>
-  <div class="stats" id="stats"></div>
+  <div class="rail-foot">
+    <div class="aircraft" id="aircraftType"></div>
+    <div class="stats" id="stats"></div>
+    <div class="user" id="userBox"></div>
+    <div class="company">A Torwood Aerospace Group product</div>
+  </div>
+</aside>
+
+<header class="topbar">
+  <div class="rail-brand"><svg class="mark"><use href="#i-mark"/></svg><span class="wordmark">Vantage</span></div>
+  <div class="topbar-sub" id="aircraftTypeTop"></div>
+  <button class="icon-btn signout hidden" id="signOutTop" title="Sign out"><svg><use href="#i-signout"/></svg></button>
 </header>
 
 <main>
-  <!-- ============================================================ DIAGNOSE -->
+  <!-- ================================================================ DIAGNOSE -->
   <section id="tab-diagnose" class="panel active">
     <div class="split">
-      <div class="col-left">
+      <div class="pane pane-left" id="diagLeft">
+        <div class="pane-head">
+          <h1>Diagnose</h1>
+          <button class="ghost hidden" id="newDiag"><svg><use href="#i-new"/></svg>New</button>
+        </div>
+        <div id="keyNotice"></div>
         <form id="diagForm" class="card">
-          <label for="question">Describe the problem</label>
-          <textarea id="question" rows="5" placeholder="e.g. On battery start, No.1 battery contactor will not close. Battery switch ON, no voltage on the battery bus. No.2 side works normally."></textarea>
+          <label for="question">What is the aircraft doing?</label>
+          <textarea id="question" rows="4" placeholder="e.g. Flaps will not move in either direction. Flap position indicator reads normally."></textarea>
+          <div class="hint">Tip: tap the microphone on the iPad keyboard to dictate.</div>
           <div class="row">
             <div class="field">
-              <label for="serial">Aircraft serial no. <span class="muted">(for effectivity)</span></label>
-              <input id="serial" placeholder="e.g. 0123">
+              <label for="serial">Aircraft serial no.</label>
+              <input id="serial" inputmode="numeric" autocomplete="off" placeholder="e.g. 0150">
             </div>
-            <button type="submit" class="primary" id="diagBtn">Diagnose</button>
+            <button type="submit" class="primary big" id="diagBtn">Diagnose</button>
           </div>
         </form>
 
@@ -49,31 +95,42 @@
         <div id="result" class="hidden"></div>
 
         <form id="followForm" class="card hidden">
-          <label for="followup">Follow-up or test result</label>
-          <textarea id="followup" rows="3" placeholder="e.g. Measured 24 V at K45 coil terminal X1 with switch ON, contactor still does not close."></textarea>
+          <label for="followup">Test result or follow-up question</label>
+          <textarea id="followup" rows="3" placeholder="e.g. I have 24 V at C146-D with the fan switched on."></textarea>
           <div class="row end"><button class="primary" type="submit">Send</button></div>
         </form>
       </div>
 
-      <div class="col-right">
-        <div class="card viewer-card">
-          <div class="ref-tabs" id="refTabs"><div class="empty">Referenced diagrams appear here with the relevant components highlighted.</div></div>
+      <div class="pane pane-right">
+        <div class="viewer-card" id="diagViewerCard">
+          <div class="viewer-head">
+            <div class="ref-tabs" id="refTabs"></div>
+            <button class="icon-btn close-full" title="Close"><svg><use href="#i-close"/></svg></button>
+          </div>
           <div class="ref-why" id="refWhy"></div>
           <div class="viewer" id="diagViewer"></div>
           <div class="legend" id="refLegend"></div>
+          <div class="viewer-empty" id="viewerEmpty">
+            <svg class="mark big-mark"><use href="#i-mark"/></svg>
+            <p>Describe a defect and Vantage will research your maintenance data. The schematic pages it uses appear here, with the relevant components highlighted.</p>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ============================================================ LIBRARY -->
+  <!-- ================================================================ LIBRARY -->
   <section id="tab-library" class="panel">
     <div class="split">
-      <div class="col-left">
+      <div class="pane pane-left">
+        <div class="pane-head"><h1>Library</h1></div>
         <form id="uploadForm" class="card">
           <div class="card-title">Add maintenance data</div>
-          <label for="file">File <span class="muted">(PDF manuals &amp; wiring diagrams, photos/scans, .txt/.md notes)</span></label>
-          <input type="file" id="file" multiple accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.gif,.txt,.md,.csv,.log">
+          <div class="pick-row">
+            <label class="pick"><input type="file" id="file" multiple accept=".pdf,.png,.jpg,.jpeg,.heic,.tif,.tiff,.webp,.txt,.md,.csv"><svg><use href="#i-upload"/></svg><span>Choose files</span></label>
+            <label class="pick"><input type="file" id="photo" accept="image/*" capture="environment"><svg><use href="#i-camera"/></svg><span>Take photo</span></label>
+          </div>
+          <div class="hint" id="fileChosen">PDF manuals and wiring diagrams, photos or scans, and .txt / .md notes.</div>
           <div class="row">
             <div class="field"><label for="docTitle">Title <span class="muted">(optional)</span></label><input id="docTitle" placeholder="Defaults to the file name"></div>
             <div class="field narrow"><label for="category">Type</label>
@@ -86,67 +143,81 @@
               </select>
             </div>
           </div>
-          <label class="check"><input type="checkbox" id="enrichAI"> Read every page with AI after upload <span class="muted">(better search on scanned pages; uses API credits)</span></label>
+          <label class="check"><input type="checkbox" id="enrichAI"><span>Have the AI read every page <span class="muted">(better search on scanned pages; uses API credits)</span></span></label>
           <div class="row end"><button class="primary" type="submit">Upload</button></div>
           <div id="uploadMsg" class="msg"></div>
         </form>
 
         <div class="card">
-          <div class="card-title">Documents</div>
-          <div id="docList" class="doc-list"></div>
+          <div class="card-title">Search the library</div>
+          <form id="libSearchForm" class="search-row"><svg><use href="#i-search"/></svg><input id="libSearch" type="search" placeholder="K45, P86B12, battery contactor, 24-30-02"><button type="submit">Search</button></form>
+          <div id="libResults" class="results"></div>
         </div>
 
         <div class="card">
-          <div class="card-title">Search the library</div>
-          <form id="libSearchForm" class="row"><input id="libSearch" placeholder="e.g. K45, P86B12, battery contactor, 24-30-02"><button type="submit">Search</button></form>
-          <div id="libResults" class="results"></div>
+          <div class="card-title">Documents</div>
+          <div id="docList" class="doc-list"></div>
         </div>
       </div>
 
-      <div class="col-right">
-        <div class="card viewer-card">
-          <div class="browse-bar">
-            <select id="browseDoc"></select>
-            <button id="prevPage" title="Previous page">‹</button>
-            <select id="browsePage"></select>
-            <button id="nextPage" title="Next page">›</button>
+      <div class="pane pane-right">
+        <div class="viewer-card" id="libViewerCard">
+          <div class="viewer-head">
+            <div class="browse-bar">
+              <select id="browseDoc" aria-label="Document"></select>
+              <button class="icon-btn" id="prevPage" title="Previous page"><svg><use href="#i-chev-l"/></svg></button>
+              <select id="browsePage" aria-label="Page"></select>
+              <button class="icon-btn" id="nextPage" title="Next page"><svg><use href="#i-chev-r"/></svg></button>
+            </div>
+            <button class="icon-btn close-full" title="Close"><svg><use href="#i-close"/></svg></button>
           </div>
-          <div class="browse-meta" id="browseMeta"></div>
-          <form id="findForm" class="row"><input id="findTerms" placeholder="Highlight on this page, comma-separated (e.g. K45, P86B12)"><button type="submit">Highlight</button></form>
+          <div class="ref-why" id="browseMeta"></div>
+          <form id="findForm" class="search-row"><svg><use href="#i-search"/></svg><input id="findTerms" type="search" placeholder="Highlight on this page: K45, P86B12"><button type="submit">Find</button></form>
           <div class="viewer" id="libViewer"></div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ============================================================ NOTES -->
+  <!-- ================================================================ NOTES -->
   <section id="tab-notes" class="panel">
     <div class="split">
-      <div class="col-left">
+      <div class="pane pane-left">
+        <div class="pane-head"><h1>Notes</h1></div>
         <form id="noteForm" class="card">
           <div class="card-title">Add a troubleshooting note</div>
           <label for="noteTitle">Title</label>
-          <input id="noteTitle" placeholder="e.g. Intermittent No.1 battery contactor — corroded ground G202">
+          <input id="noteTitle" placeholder="e.g. Intermittent No.1 battery contactor: corroded ground G202">
           <div class="row">
             <div class="field"><label for="noteSerial">Aircraft (serial / reg.)</label><input id="noteSerial" placeholder="optional"></div>
-            <div class="field"><label for="noteTags">Tags</label><input id="noteTags" placeholder="e.g. battery, 24-30-02, K45"></div>
+            <div class="field"><label for="noteTags">Tags</label><input id="noteTags" placeholder="battery, 24-30-02, K45"></div>
           </div>
-          <label for="noteBody">Details: symptom, what was checked, what fixed it</label>
-          <textarea id="noteBody" rows="8"></textarea>
+          <label for="noteBody">Symptom, what was checked, what fixed it</label>
+          <textarea id="noteBody" rows="7"></textarea>
           <div class="row end"><button class="primary" type="submit">Save note</button></div>
         </form>
       </div>
-      <div class="col-right">
+      <div class="pane pane-right scroll">
         <div class="card"><div class="card-title">Notes on file</div><div id="noteList"></div></div>
       </div>
     </div>
   </section>
 
-  <!-- ============================================================ HISTORY -->
+  <!-- ================================================================ HISTORY -->
   <section id="tab-history" class="panel">
-    <div class="card"><div class="card-title">Past diagnoses</div><div id="historyList"></div></div>
+    <div class="pane single">
+      <div class="pane-head"><h1>History</h1></div>
+      <div class="card"><div id="historyList"></div></div>
+    </div>
   </section>
 </main>
+
+<nav class="tabbar">
+  <button class="nav-btn active" data-tab="diagnose"><svg><use href="#i-diagnose"/></svg><span>Diagnose</span></button>
+  <button class="nav-btn" data-tab="library"><svg><use href="#i-library"/></svg><span>Library</span></button>
+  <button class="nav-btn" data-tab="notes"><svg><use href="#i-notes"/></svg><span>Notes</span></button>
+  <button class="nav-btn" data-tab="history"><svg><use href="#i-history"/></svg><span>History</span></button>
+</nav>
 
 <script src="/static/app.js"></script>
 </body>

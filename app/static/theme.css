@@ -1,0 +1,57 @@
+/* ==========================================================================
+   Vantage theme: Torwood Aerospace Group
+   ---------------------------------------------------------------------------
+   Every colour and font in the app comes from this file. To apply the
+   AeroQuiz / Torwood brand, change the values below; nothing else needs to change.
+   PLACEHOLDER VALUES until the brand colours and fonts are supplied.
+   ========================================================================== */
+:root {
+  /* Fonts */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Brand */
+  --brand: #0b2545;          /* primary: navigation rail, headings */
+  --brand-ink: #ffffff;      /* text on --brand */
+  --brand-muted: #8da9c4;    /* secondary text on --brand */
+  --accent: #1f6feb;         /* buttons, links, selection */
+  --accent-ink: #ffffff;
+
+  /* Surfaces & text */
+  --bg: #eef1f5;
+  --surface: #ffffff;
+  --surface-2: #f5f7fa;
+  --text: #13171f;
+  --muted: #5d6879;
+  --border: #dde2ea;
+
+  /* Status */
+  --ok: #157f3b;
+  --warn: #b25e09;
+  --danger: #c52a20;
+
+  /* Highlight colours on diagrams, by probable-cause rank (0 = context) */
+  --c0: #16a34a; --c1: #e5484d; --c2: #f59e0b; --c3: #2563eb; --c4: #8b5cf6; --c5: #0d9488;
+
+  --radius: 14px;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .04);
+  --viewer-bg: #e3e7ee;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --brand: #07182e; --brand-muted: #7f9bb8;
+    --accent: #4c8dff;
+    --bg: #0d1117; --surface: #161b22; --surface-2: #1c222b;
+    --text: #e6e9ef; --muted: #9aa4b2; --border: #2a313c;
+    --shadow: none; --viewer-bg: #222a35;
+  }
+}
+:root[data-theme="dark"] {
+  --brand: #07182e; --brand-muted: #7f9bb8;
+  --accent: #4c8dff;
+  --bg: #0d1117; --surface: #161b22; --surface-2: #1c222b;
+  --text: #e6e9ef; --muted: #9aa4b2; --border: #2a313c;
+  --shadow: none; --viewer-bg: #222a35;
+}

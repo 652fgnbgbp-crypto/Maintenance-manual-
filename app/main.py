@@ -8,26 +8,80 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import agent, config, db, enrich, highlight, ingest, search
+from . import agent, auth, config, db, enrich, highlight, ingest, search
 
 @asynccontextmanager
 async def lifespan(_app):
     config.ensure_dirs()
     db.connect()
+    auth.init()
     # AI reading interrupted by a restart can be started again from the library
     with db.tx() as conn:
         conn.execute("UPDATE documents SET enrich_status='none' WHERE enrich_status='running'")
     yield
 
 
-app = FastAPI(title="Aircraft Maintenance Diagnostic Assistant", lifespan=lifespan)
+app = FastAPI(title="Vantage", lifespan=lifespan)
 STATIC = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+# Paths reachable without signing in: the sign-in page and what it (and the home-screen icon) needs.
+PUBLIC = ("/login", "/api/login", "/static/", "/manifest.webmanifest", "/favicon.ico")
+
+
+@app.middleware("http")
+async def require_login(request: Request, call_next):
+    path = request.url.path
+    request.state.user = auth.user_for(request.cookies.get(auth.COOKIE))
+    if path.startswith(PUBLIC) or request.state.user or not auth.login_required():
+        return await call_next(request)
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": "Please sign in."}, status_code=401)
+    return RedirectResponse("/login")
+
+
+@app.get("/login")
+def login_page():
+    return FileResponse(STATIC / "login.html")
+
+
+class LoginBody(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/login")
+def do_login(body: LoginBody, request: Request):
+    token = auth.login(body.email, body.password)
+    if token is None:
+        raise HTTPException(401, "Email or password is incorrect.")
+    res = JSONResponse({"ok": True})
+    res.set_cookie(auth.COOKIE, token, max_age=auth.SESSION_DAYS * 86400, httponly=True, samesite="lax",
+                   secure=request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https")
+    return res
+
+
+@app.post("/api/logout")
+def do_logout(request: Request):
+    auth.logout(request.cookies.get(auth.COOKIE))
+    res = JSONResponse({"ok": True})
+    res.delete_cookie(auth.COOKIE)
+    return res
+
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    return FileResponse(STATIC / "manifest.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return FileResponse(STATIC / "icons" / "icon-192.png", media_type="image/png")
 
 
 @app.get("/")
@@ -36,8 +90,11 @@ def index():
 
 
 @app.get("/api/info")
-def info():
+def info(request: Request):
+    user = request.state.user
     return {
+        "user": {"name": user["name"] or user["email"], "email": user["email"]} if user else None,
+        "login_required": auth.login_required(),
         "aircraft_type": config.AIRCRAFT_TYPE,
         "model": config.DIAGNOSIS_MODEL,
         "api_key_configured": bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")),

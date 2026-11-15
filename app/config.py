@@ -9,6 +9,8 @@ DB_PATH = DATA_DIR / "library.db"
 
 # Name of the aircraft type this library is for (shown in the UI and given to the AI).
 AIRCRAFT_TYPE = os.environ.get("MX_AIRCRAFT_TYPE", "Cessna 441 Conquest / Conquest II")
+PRODUCT_NAME = "Vantage"
+COMPANY_NAME = "Torwood Aerospace Group"
 
 # Model used for diagnosis, and for the optional per-page enrichment pass.
 DIAGNOSIS_MODEL = os.environ.get("MX_DIAGNOSIS_MODEL", "claude-opus-5-5")

@@ -194,3 +194,25 @@ def test_http_api(app_env):
         assert c.post("/api/documents", files={"file": ("x.exe", b"MZ", "application/octet-stream")}).status_code == 400
         assert c.delete(f"/api/documents/{doc_id}").json() == {"ok": True}
         assert c.get("/").status_code == 200
+
+
+def test_sign_in(app_env, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import auth
+    from app.main import app
+    with TestClient(app) as c:
+        # no users yet: open access (local use)
+        assert c.get("/api/info").status_code == 200
+        auth.add_user("tech@example.com", "correct horse", name="Tech")
+        c.cookies.clear()
+        assert c.get("/api/info").status_code == 401
+        assert c.get("/", follow_redirects=False).headers["location"] == "/login"
+        assert c.get("/login").status_code == 200
+        assert c.get("/static/theme.css").status_code == 200
+        assert c.post("/api/login", json={"email": "tech@example.com", "password": "wrong pass"}).status_code == 401
+        r = c.post("/api/login", json={"email": "TECH@example.com", "password": "correct horse"})
+        assert r.status_code == 200
+        info = c.get("/api/info").json()
+        assert info["user"]["name"] == "Tech" and info["login_required"] is True
+        c.post("/api/logout")
+        assert c.get("/api/info").status_code == 401
