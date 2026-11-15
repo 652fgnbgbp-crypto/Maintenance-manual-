@@ -1,57 +1,62 @@
 /* ==========================================================================
-   Vantage theme: Torwood Aerospace Group
+   Vantage theme: Torwood Aerospace Group (matches AeroQuiz)
    ---------------------------------------------------------------------------
-   Every colour and font in the app comes from this file. To apply the
-   AeroQuiz / Torwood brand, change the values below; nothing else needs to change.
-   PLACEHOLDER VALUES until the brand colours and fonts are supplied.
+   Every colour and font in the app comes from this file.
+   Colours sampled from the AeroQuiz site: navy #162943, logo tile #20395c,
+   gold #dea652 with near-black ink #191406, muted #acb8cf.
    ========================================================================== */
 :root {
-  /* Fonts */
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  /* Fonts: Inter, as used by AeroQuiz */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   /* Brand */
-  --brand: #0b2545;          /* primary: navigation rail, headings */
-  --brand-ink: #ffffff;      /* text on --brand */
-  --brand-muted: #8da9c4;    /* secondary text on --brand */
-  --accent: #1f6feb;         /* buttons, links, selection */
-  --accent-ink: #ffffff;
+  --brand: #162943;          /* Torwood navy: navigation, headers */
+  --brand-2: #20395c;        /* logo tile, selected item on navy */
+  --brand-line: #2a3f67;     /* dividers on navy */
+  --brand-ink: #ffffff;      /* text on navy */
+  --brand-soft: #d8dde5;     /* nav text on navy */
+  --brand-muted: #acb8cf;    /* secondary text on navy */
+  --gold: #dea652;           /* Torwood gold */
+  --accent: #dea652;         /* primary buttons */
+  --accent-ink: #191406;     /* text on gold */
+  --link: #1f4f8f;           /* links and active items on light backgrounds */
 
-  /* Surfaces & text */
-  --bg: #eef1f5;
+  /* Light content area */
+  --bg: #f2f4f8;
   --surface: #ffffff;
-  --surface-2: #f5f7fa;
-  --text: #13171f;
-  --muted: #5d6879;
-  --border: #dde2ea;
+  --surface-2: #f6f8fb;
+  --text: #111a2b;
+  --muted: #5f6777;
+  --border: #e3e8ef;
 
   /* Status */
   --ok: #157f3b;
-  --warn: #b25e09;
+  --warn: #b26a0c;
   --danger: #c52a20;
 
   /* Highlight colours on diagrams, by probable-cause rank (0 = context) */
-  --c0: #16a34a; --c1: #e5484d; --c2: #f59e0b; --c3: #2563eb; --c4: #8b5cf6; --c5: #0d9488;
+  --c0: #16a34a; --c1: #e5484d; --c2: #e39a1c; --c3: #2563eb; --c4: #8b5cf6; --c5: #0d9488;
 
   --radius: 14px;
-  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .04);
-  --viewer-bg: #e3e7ee;
+  --shadow: 0 1px 2px rgba(17, 26, 43, .06), 0 1px 3px rgba(17, 26, 43, .04);
+  --viewer-bg: #e4e8ef;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --brand: #07182e; --brand-muted: #7f9bb8;
-    --accent: #4c8dff;
-    --bg: #0d1117; --surface: #161b22; --surface-2: #1c222b;
-    --text: #e6e9ef; --muted: #9aa4b2; --border: #2a313c;
-    --shadow: none; --viewer-bg: #222a35;
+    --brand: #101e33; --brand-2: #1b3150; --brand-line: #23365a;
+    --link: #8fb4ec;
+    --bg: #0e1726; --surface: #162943; --surface-2: #1b3150;
+    --text: #eef2f8; --muted: #acb8cf; --border: #2a3f67;
+    --shadow: none; --viewer-bg: #0b1422;
   }
 }
 :root[data-theme="dark"] {
-  --brand: #07182e; --brand-muted: #7f9bb8;
-  --accent: #4c8dff;
-  --bg: #0d1117; --surface: #161b22; --surface-2: #1c222b;
-  --text: #e6e9ef; --muted: #9aa4b2; --border: #2a313c;
-  --shadow: none; --viewer-bg: #222a35;
+  --brand: #101e33; --brand-2: #1b3150; --brand-line: #23365a;
+  --link: #8fb4ec;
+  --bg: #0e1726; --surface: #162943; --surface-2: #1b3150;
+  --text: #eef2f8; --muted: #acb8cf; --border: #2a3f67;
+  --shadow: none; --viewer-bg: #0b1422;
 }

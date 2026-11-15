@@ -61,8 +61,10 @@ Running locally with no users configured skips sign-in, which is convenient on y
 
 ## Theme
 
-All colours and fonts are in `app/static/theme.css`. They are placeholders until the Torwood /
-AeroQuiz brand values are supplied.
+Vantage uses the AeroQuiz / Torwood Aerospace Group look: navy `#162943`, gold `#dea652`, and the
+Inter typeface. All colours and fonts are in `app/static/theme.css`. The Vantage and Torwood
+emblems are drawn as SVG in `app/static/index.html` and `login.html`. Swap in official logo artwork
+there if you have it.
 
 ## Setup (local)
 

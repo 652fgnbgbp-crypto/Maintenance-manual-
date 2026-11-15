@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Vantage</title>
 <meta name="description" content="Vantage: AI-assisted maintenance manuals and troubleshooting, by Torwood Aerospace Group.">
-<meta name="theme-color" content="#0b2545">
+<meta name="theme-color" content="#162943">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,6 +13,9 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
 <link rel="icon" href="/static/icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
@@ -35,14 +38,15 @@
   <symbol id="i-chev-r" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></symbol>
   <symbol id="i-signout" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
   <symbol id="i-new" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4zM3 6h6M6 3v6"/></symbol>
-  <symbol id="i-mark" viewBox="0 0 40 40"><path fill="currentColor" d="M4 7h8.5L20 27.5 27.5 7H36L23.5 35h-7z"/><path fill="currentColor" opacity=".55" d="M17.5 7h5L20 14z"/></symbol>
+  <symbol id="i-logo" viewBox="0 0 40 40"><rect width="40" height="40" rx="9" style="fill:var(--brand-2)"/><path style="fill:var(--gold)" d="M20 5.5l3.4 4.6h-6.8z"/><path fill="#fff" d="M8.5 12.5h7.2L20 26.3l4.3-13.8h7.2L23.6 34h-7.2z"/></symbol>
+  <symbol id="i-torwood" viewBox="0 0 40 40"><circle cx="20" cy="20" r="17.6" fill="none" stroke="currentColor" stroke-width="2.6"/><path style="fill:var(--gold)" d="M20 6.6l3.2 4.2h-6.4z"/><path fill="currentColor" d="M8.6 12.6h22.8l-1 3.2H9.6zM17.9 15.8h4.2v12.6h3.4v3.2h-11v-3.2h3.4z"/></symbol>
 </svg>
 
 <!-- Navigation: side rail on iPad landscape, bottom tab bar in portrait -->
 <aside class="rail">
   <div class="rail-brand">
-    <svg class="mark"><use href="#i-mark"/></svg>
-    <span class="wordmark">Vantage</span>
+    <svg class="logo"><use href="#i-logo"/></svg>
+    <div><div class="wordmark">Vantage</div><div class="byline">By Torwood Aerospace Group</div></div>
   </div>
   <nav class="rail-nav">
     <button class="nav-btn active" data-tab="diagnose"><svg><use href="#i-diagnose"/></svg><span>Diagnose</span></button>
@@ -54,12 +58,15 @@
     <div class="aircraft" id="aircraftType"></div>
     <div class="stats" id="stats"></div>
     <div class="user" id="userBox"></div>
-    <div class="company">A Torwood Aerospace Group product</div>
+    <div class="company">
+      <svg class="emblem"><use href="#i-torwood"/></svg>
+      <div><div class="tw-name">TORWOOD</div><div class="tw-rule"></div><div class="tw-sub">AEROSPACE GROUP</div></div>
+    </div>
   </div>
 </aside>
 
 <header class="topbar">
-  <div class="rail-brand"><svg class="mark"><use href="#i-mark"/></svg><span class="wordmark">Vantage</span></div>
+  <div class="rail-brand"><svg class="logo"><use href="#i-logo"/></svg><div><div class="wordmark">Vantage</div><div class="byline">By Torwood Aerospace Group</div></div></div>
   <div class="topbar-sub" id="aircraftTypeTop"></div>
   <button class="icon-btn signout hidden" id="signOutTop" title="Sign out"><svg><use href="#i-signout"/></svg></button>
 </header>
@@ -111,7 +118,7 @@
           <div class="viewer" id="diagViewer"></div>
           <div class="legend" id="refLegend"></div>
           <div class="viewer-empty" id="viewerEmpty">
-            <svg class="mark big-mark"><use href="#i-mark"/></svg>
+            <svg class="big-mark"><use href="#i-logo"/></svg>
             <p>Describe a defect and Vantage will research your maintenance data. The schematic pages it uses appear here, with the relevant components highlighted.</p>
           </div>
         </div>
