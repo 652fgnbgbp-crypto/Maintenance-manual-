@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS diagnoses (
     id          INTEGER PRIMARY KEY,
     org_id      INTEGER NOT NULL DEFAULT 1 REFERENCES organisations(id),
     created_by  TEXT NOT NULL DEFAULT '',
+    cross_org   INTEGER NOT NULL DEFAULT 0,      -- used every operator's Fix Log: platform admins only
     question    TEXT NOT NULL,
     serial      TEXT NOT NULL DEFAULT '',
     result      TEXT,          -- JSON
@@ -119,7 +120,8 @@ _NEW_COLUMNS = {
     "notes": [("org_id", "INTEGER NOT NULL DEFAULT 1"), ("symptom", "TEXT NOT NULL DEFAULT ''"),
               ("checks", "TEXT NOT NULL DEFAULT ''"), ("fix", "TEXT NOT NULL DEFAULT ''"),
               ("system", "TEXT NOT NULL DEFAULT ''"), ("created_by", "TEXT NOT NULL DEFAULT ''")],
-    "diagnoses": [("org_id", "INTEGER NOT NULL DEFAULT 1"), ("created_by", "TEXT NOT NULL DEFAULT ''")],
+    "diagnoses": [("org_id", "INTEGER NOT NULL DEFAULT 1"), ("created_by", "TEXT NOT NULL DEFAULT ''"),
+                  ("cross_org", "INTEGER NOT NULL DEFAULT 0")],
     "users": [("org_id", "INTEGER NOT NULL DEFAULT 1"), ("is_platform_admin", "INTEGER NOT NULL DEFAULT 0")],
 }
 
@@ -259,10 +261,11 @@ def org_document(org_id: int, doc_id: int) -> dict | None:
     return one("SELECT * FROM documents WHERE id = ? AND org_id = ?", (doc_id, org_id))
 
 
-def save_diagnosis(question: str, serial: str, result: dict, trace: list, org_id: int = 1, created_by: str = "") -> int:
+def save_diagnosis(question: str, serial: str, result: dict, trace: list, org_id: int = 1, created_by: str = "",
+                   cross_org: bool = False) -> int:
     with tx() as conn:
         cur = conn.execute(
-            "INSERT INTO diagnoses(org_id, created_by, question, serial, result, trace) VALUES(?, ?, ?, ?, ?, ?)",
-            (org_id, created_by, question, serial, json.dumps(result), json.dumps(trace)),
+            "INSERT INTO diagnoses(org_id, created_by, cross_org, question, serial, result, trace) VALUES(?, ?, ?, ?, ?, ?, ?)",
+            (org_id, created_by, int(cross_org), question, serial, json.dumps(result), json.dumps(trace)),
         )
         return cur.lastrowid

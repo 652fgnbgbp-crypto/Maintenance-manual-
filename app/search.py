@@ -63,7 +63,7 @@ def search_notes(text: str, limit: int = 6, org_id: int | None = 1) -> list[dict
     q = fts_query(text)
     if not q:
         return []
-    sql = ("SELECT n.*, o.name AS org_name, bm25(notes_fts) AS score FROM notes_fts "
+    sql = ("SELECT n.*, o.name AS org_name, o.aircraft_type AS org_aircraft, bm25(notes_fts) AS score FROM notes_fts "
            "JOIN notes n ON n.id = notes_fts.rowid JOIN organisations o ON o.id = n.org_id WHERE notes_fts MATCH ?")
     params: list = [q]
     if org_id is not None:

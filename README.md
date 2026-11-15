@@ -41,7 +41,10 @@ Vantage is a website that organisations subscribe to. Each subscribing organisat
 **Fix Log access.** A subscriber's Fix Log is visible only to that subscriber's own users, and its
 diagnoses draw only on its own entries. Torwood platform administrators can also read every
 subscriber's Fix Log, read-only. On the Fix Log page, a *Showing* selector switches between your own
-organisation, all subscribers, or a single subscriber. Subscribers can't see this selector, and the
+organisation, all subscribers, or a single subscriber. Diagnoses run from a platform administrator's login also
+search **every operator's** Fix Log. Each past fix in the *Previously resolved* box is tagged with
+the operator and its aircraft type. Those diagnoses are kept out of everyone else's History, even
+other users in the administrator's own organisation. Subscribers can't see this selector, and the
 server refuses those requests from them. **Tell subscribers about this access in the subscription
 terms and privacy policy.** Entries contain their engineers' names and their aircraft details.
 

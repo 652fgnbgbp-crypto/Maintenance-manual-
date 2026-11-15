@@ -288,16 +288,21 @@ def tool_view_page(inp: dict, viewed: set, org_id: int) -> list | str:
     return content
 
 
-def tool_search_notes(inp: dict, org_id: int, seen: set) -> str:
-    notes = search.search_notes(inp["query"], org_id=org_id)
+def tool_search_notes(inp: dict, org_id: int, seen: set, all_orgs: bool = False) -> str:
+    """The organisation's own Fix Log, or (Torwood platform admins only) every operator's."""
+    notes = search.search_notes(inp["query"], limit=10 if all_orgs else 6, org_id=None if all_orgs else org_id)
     if not notes:
         return "No matching Fix Log entries."
     seen.update(n["id"] for n in notes)
-    return json.dumps([
-        {"note_id": n["id"], "aircraft": n["serial"], "system": n["system"], "date": n["created_at"],
-         "engineer": n["created_by"], "tags": n["tags"], "entry": n["body"][:2500]}
-        for n in notes
-    ], indent=1)
+    out = []
+    for n in notes:
+        e = {"note_id": n["id"], "aircraft": n["serial"], "system": n["system"], "date": n["created_at"],
+             "engineer": n["created_by"], "tags": n["tags"], "entry": n["body"][:2500]}
+        if all_orgs:
+            e["operator"] = n["org_name"]
+            e["operator_aircraft_type"] = n["org_aircraft"]
+        out.append(e)
+    return json.dumps(out, indent=1)
 
 
 def tool_locate(inp: dict, org_id: int) -> str:
@@ -318,16 +323,22 @@ def tool_locate(inp: dict, org_id: int) -> str:
 
 def _fix_card(n: dict) -> dict:
     return {"note_id": n["id"], "symptom": n["symptom"] or n["title"], "checks": n["checks"],
-            "fix": n["fix"] or n["body"], "aircraft": n["serial"], "system": n["system"],
-            "engineer": n["created_by"], "date": n["created_at"], "source": n["source"]}
+            "fix": n["fix"], "body": n["body"], "aircraft": n["serial"], "system": n["system"],
+            "engineer": n["created_by"], "date": n["created_at"], "source": n["source"],
+            "operator": n.get("org_name", ""), "operator_aircraft_type": n.get("org_aircraft", "")}
 
 
-def build_result(diag: dict, viewed: set, org_id: int = 1, seen_notes: set | None = None) -> dict:
+def build_result(diag: dict, viewed: set, org_id: int = 1, seen_notes: set | None = None,
+                 all_orgs: bool = False) -> dict:
     """Attach page metadata, on-page highlight boxes and the cited Fix Log entries to the diagnosis.
-    Anything that is not in the organisation's own library is dropped."""
+    Anything that is not in the organisation's own library is dropped. With all_orgs (Torwood platform
+    admins only), Fix Log entries may come from any operator."""
     fixes = []
     for pf in diag.get("previous_fixes", []):
-        n = db.one("SELECT * FROM notes WHERE id = ? AND org_id = ?", (pf["note_id"], org_id))
+        n = db.one("SELECT n.*, o.name AS org_name, o.aircraft_type AS org_aircraft FROM notes n "
+                   "JOIN organisations o ON o.id = n.org_id WHERE n.id = ?"
+                   + ("" if all_orgs else " AND n.org_id = ?"),
+                   (pf["note_id"],) if all_orgs else (pf["note_id"], org_id))
         # only entries the AI actually retrieved in this conversation (seen_notes is None when rebuilding a saved result)
         if n is not None and (seen_notes is None or n["id"] in seen_notes):
             fixes.append({**_fix_card(n), "match": pf.get("match", "partial"), "relevance": pf.get("relevance", ""),
@@ -355,20 +366,24 @@ def build_result(diag: dict, viewed: set, org_id: int = 1, seen_notes: set | Non
             "has_image": page["doc_kind"] != "text", "verified": (ref["doc_id"], ref["page"]) in viewed,
             "text": page["text"] if page["doc_kind"] == "text" else None,
         })
-    return {**diag, "probable_causes": causes, "previous_fixes": fixes, "references": refs}
+    return {**diag, "probable_causes": causes, "previous_fixes": fixes, "references": refs,
+            "fix_scope": "all_operators" if all_orgs else "own"}
 
 
 # ------------------------------------------------------------------ sessions
 
 
 class Session:
-    def __init__(self, serial: str, org_id: int = 1, aircraft_type: str = "", user_name: str = ""):
+    def __init__(self, serial: str, org_id: int = 1, aircraft_type: str = "", user_name: str = "",
+                 all_fixes: bool = False):
         self.id = uuid.uuid4().hex
         self.serial = serial
         self.org_id = org_id
         self.aircraft_type = aircraft_type or config.AIRCRAFT_TYPE
         self.user_name = user_name
         self.seen_notes: set = set()
+        self.all_fixes = all_fixes  # Torwood platform admin: draw on every operator's Fix Log
+        self.user_id: int | None = None
         self.messages: list = []
         self.pending_tool_use: str | None = None  # submit_diagnosis id awaiting a tool_result
         self.viewed: set = set()
@@ -382,14 +397,16 @@ SESSIONS: dict[str, Session] = {}
 
 
 def get_or_create_session(session_id: str | None, serial: str, org_id: int = 1, aircraft_type: str = "",
-                          user_name: str = "") -> Session:
-    if session_id and session_id in SESSIONS and SESSIONS[session_id].org_id == org_id:
-        return SESSIONS[session_id]
+                          user_name: str = "", all_fixes: bool = False, user_id: int | None = None) -> Session:
+    s = SESSIONS.get(session_id or "")
+    if s and s.org_id == org_id and s.all_fixes == all_fixes and s.user_id == user_id:
+        return s
     # drop sessions idle for more than 6 hours
     cutoff = time.time() - 6 * 3600
     for k in [k for k, s in SESSIONS.items() if s.updated < cutoff]:
         SESSIONS.pop(k, None)
-    s = Session(serial, org_id, aircraft_type, user_name)
+    s = Session(serial, org_id, aircraft_type, user_name, all_fixes)
+    s.user_id = user_id
     SESSIONS[s.id] = s
     return s
 
@@ -407,7 +424,10 @@ def run(session: Session, user_text: str, emit: Emit, client=None) -> dict:
         if first:
             serial_line = f"Aircraft serial number: {session.serial}" if session.serial else \
                 "Aircraft serial number: not given"
-            text = f"{library_overview(session.org_id)}\n\n{serial_line}\n\nReported problem:\n{user_text}"
+            scope = ("\nFix Log scope: search_notes covers the Fix Logs of EVERY operator subscribed to Vantage. "
+                     "Each entry names its operator and that operator's aircraft type; an entry from a different "
+                     "aircraft type is weaker evidence, so say so when you cite it.") if session.all_fixes else ""
+            text = f"{library_overview(session.org_id)}{scope}\n\n{serial_line}\n\nReported problem:\n{user_text}"
         else:
             text = f"Technician follow-up:\n{user_text}"
         content: list = []
@@ -464,11 +484,13 @@ def run(session: Session, user_text: str, emit: Emit, client=None) -> dict:
             if submit is not None:
                 others = [b for b in tool_uses if b is not submit]
                 if not others:
-                    result = build_result(submit.input, session.viewed, session.org_id, session.seen_notes)
+                    result = build_result(submit.input, session.viewed, session.org_id, session.seen_notes,
+                                          all_orgs=session.all_fixes)
                     session.pending_tool_use = submit.id
                     session.diagnosis_id = db.save_diagnosis(user_text if first else f"(follow-up) {user_text}",
                                                              session.serial, result, session.trace,
-                                                             org_id=session.org_id, created_by=session.user_name)
+                                                             org_id=session.org_id, created_by=session.user_name,
+                                                             cross_org=session.all_fixes)
                     return {"type": "diagnosis", "session_id": session.id, "diagnosis_id": session.diagnosis_id,
                             "result": result, "trace": session.trace}
 
@@ -499,8 +521,9 @@ def _execute(block, session: Session, emit: Emit) -> dict:
             step = {"kind": "view", "text": f"Opened {label}", "doc_id": inp["doc_id"], "page": inp["page"]}
             out = tool_view_page(inp, session.viewed, session.org_id)
         elif name == "search_notes":
-            step = {"kind": "notes", "text": f"Checked the Fix Log: “{inp['query']}”"}
-            out = tool_search_notes(inp, session.org_id, session.seen_notes)
+            where = "every operator's Fix Log" if session.all_fixes else "the Fix Log"
+            step = {"kind": "notes", "text": f"Checked {where}: “{inp['query']}”"}
+            out = tool_search_notes(inp, session.org_id, session.seen_notes, session.all_fixes)
         elif name == "locate_on_page":
             step = {"kind": "locate", "text": f"Located {', '.join(inp['terms'][:6])} on page {inp['page']}",
                     "doc_id": inp["doc_id"], "page": inp["page"]}

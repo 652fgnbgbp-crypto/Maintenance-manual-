@@ -313,6 +313,30 @@ def test_organisations_are_isolated(app_env):
     assert [f["symptom"] for f in a.get("/api/fixes").json()] == ["K45 drops out"]
     assert staff.get("/api/fixes").json() == []  # Torwood's own organisation log stays separate
 
+    # Diagnoses from a Torwood platform admin draw on every operator's Fix Log; nobody else's do
+    sub_session = agent.get_or_create_session(None, "", org_a, "Cessna 441", "Alice", all_fixes=False)
+    assert "synchrophaser" not in agent.tool_search_notes({"query": "synchrophaser"}, org_a, sub_session.seen_notes, sub_session.all_fixes)
+    staff_session = agent.get_or_create_session(None, "", 1, "", "Torwood", all_fixes=True)
+    found = json.loads(agent.tool_search_notes({"query": "synchrophaser K45"}, 1, staff_session.seen_notes, True))
+    assert {e["operator"] for e in found} == {"Alpha Aviation", "Bravo Air"}
+    b_fix = next(e["note_id"] for e in found if e["operator"] == "Bravo Air")
+    res = agent.build_result({"previous_fixes": [{"note_id": b_fix, "match": "partial", "relevance": ""}],
+                              "probable_causes": [], "references": []}, set(), 1, staff_session.seen_notes, all_orgs=True)
+    assert res["previous_fixes"][0]["operator"] == "Bravo Air" and res["fix_scope"] == "all_operators"
+    # the same citation is dropped for a subscriber, even if the id is guessed
+    assert agent.build_result({"previous_fixes": [{"note_id": b_fix, "match": "partial", "relevance": ""}],
+                               "probable_causes": [], "references": []}, set(), org_a, {b_fix})["previous_fixes"] == []
+    # a session id can't be reused to switch scope
+    assert agent.get_or_create_session(staff_session.id, "", 1, "", "x", all_fixes=False).id != staff_session.id
+    # cross-operator diagnoses are hidden from other users in the admin's own organisation
+    auth.add_user("colleague@torwood.example", "password-c1", "Colleague", org_id=1)
+    colleague = client_for("colleague@torwood.example", "password-c1")
+    cross_id = db.save_diagnosis("Prop sync hunting", "", res, [], org_id=1, cross_org=True)
+    own_id = db.save_diagnosis("Battery flat", "", {"summary": "s"}, [], org_id=1)
+    assert [d["id"] for d in colleague.get("/api/diagnoses").json()] == [own_id]
+    assert colleague.get(f"/api/diagnoses/{cross_id}").status_code == 404
+    assert colleague.post(f"/api/diagnoses/{cross_id}/resolution", json={"fix": "x"}).status_code == 404
+
     # Torwood staff can suspend a subscription
     assert {o["name"] for o in staff.get("/api/admin/orgs").json()} >= {"Alpha Aviation", "Bravo Air"}
     assert staff.put(f"/api/admin/orgs/{org_b}/status", json={"status": "suspended"}).status_code == 200

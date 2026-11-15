@@ -403,7 +403,7 @@ function renderDiagnosis(r, diagnosisId, resolution) {
       <div class="summary md">${md(r.summary)}</div>
       ${r.effectivity_note ? `<div class="hint">Effectivity: ${esc(r.effectivity_note)}</div>` : ""}
     </div>
-    ${fixes.length ? resolvedBox(fixes) : ""}
+    ${fixes.length ? resolvedBox(fixes, r.fix_scope === "all_operators") : ""}
     <div class="card">
       <div class="card-title">Probable causes</div>
       ${causes.map((c) => `<div class="cause"><div class="rank" style="background:${colorFor(c.rank)}">${c.rank}</div><div><div class="cause-name">${esc(c.cause)} <span class="chip ${esc(c.likelihood)}">${esc(c.likelihood)}</span>${(c.previous_fix_ids || []).length ? ` <span class="chip resolved" title="Confirmed fix in your Fix Log">Previously resolved${c.previous_fix_ids.length > 1 ? " ×" + c.previous_fix_ids.length : ""}</span>` : ""}</div><p>${esc(c.reasoning)}</p></div></div>`).join("")}
@@ -467,11 +467,15 @@ function fixBody(f, withRelevance) {
     ${withRelevance && f.relevance ? `<div class="fix-why">${esc(f.relevance)}</div>` : ""}`;
 }
 
-function resolvedBox(fixes) {
+function resolvedBox(fixes, allOperators) {
+  const n = fixes.length === 1 ? "a similar problem" : fixes.length + " similar problems";
+  const sub = allOperators
+    ? `From every operator's Fix Log (Torwood view): ${n} fixed before.`
+    : `From your Fix Log: your engineers have fixed ${n} before.`;
   return `<div class="resolved-box">
     <div class="resolved-head"><svg><use href="#i-resolved"/></svg><span class="label">Previously resolved</span></div>
-    <div class="resolved-sub">From your Fix Log: your engineers have fixed ${fixes.length === 1 ? "a similar problem" : fixes.length + " similar problems"} before.</div>
-    ${fixes.map((f) => fixEntry(f, true)).join("")}
+    <div class="resolved-sub">${sub}</div>
+    ${fixes.map((f) => `<div class="fix">${allOperators && f.operator ? `<span class="org-tag">${esc(f.operator)}${f.operator_aircraft_type ? " · " + esc(f.operator_aircraft_type) : ""}</span>` : ""}${fixBody(f, true)}</div>`).join("")}
   </div>`;
 }
 

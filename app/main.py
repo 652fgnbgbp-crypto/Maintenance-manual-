@@ -303,8 +303,10 @@ def diagnose(body: DiagnoseBody, request: Request):
     if not body.question.strip():
         raise HTTPException(400, "Describe the problem first.")
     org = org_row(c["org_id"])
+    # Only a signed-in Torwood platform admin draws on every operator's Fix Log.
+    all_fixes = bool(request.state.user) and c["is_platform_admin"]
     session = agent.get_or_create_session(body.session_id, body.serial.strip(), c["org_id"],
-                                          org["aircraft_type"], c["name"])
+                                          org["aircraft_type"], c["name"], all_fixes, c["user_id"])
     events: queue.Queue = queue.Queue()
 
     def worker():
@@ -336,8 +338,10 @@ def diagnose(body: DiagnoseBody, request: Request):
 
 @app.get("/api/diagnoses")
 def list_diagnoses(request: Request):
-    rows = db.query("SELECT id, question, serial, resolution, created_at, created_by, result FROM diagnoses "
-                    "WHERE org_id = ? ORDER BY id DESC LIMIT 200", (ctx(request)["org_id"],))
+    c = ctx(request)
+    rows = db.query("SELECT id, question, serial, resolution, created_at, created_by, cross_org, result FROM diagnoses "
+                    "WHERE org_id = ? AND (cross_org = 0 OR ?) ORDER BY id DESC LIMIT 200",
+                    (c["org_id"], int(c["is_platform_admin"])))
     for r in rows:
         res = json.loads(r.pop("result") or "{}")
         r["summary"] = res.get("summary", "")
@@ -348,7 +352,9 @@ def list_diagnoses(request: Request):
 
 @app.get("/api/diagnoses/{diag_id}")
 def get_diagnosis(diag_id: int, request: Request):
-    row = db.one("SELECT * FROM diagnoses WHERE id = ? AND org_id = ?", (diag_id, ctx(request)["org_id"]))
+    c = ctx(request)
+    row = db.one("SELECT * FROM diagnoses WHERE id = ? AND org_id = ? AND (cross_org = 0 OR ?)",
+                 (diag_id, c["org_id"], int(c["is_platform_admin"])))
     if row is None:
         raise HTTPException(404)
     row["result"] = json.loads(row["result"] or "{}")
@@ -365,7 +371,8 @@ class ResolutionBody(BaseModel):
 def record_resolution(diag_id: int, body: ResolutionBody, request: Request):
     """Record what actually fixed the aircraft. It goes into the Fix Log for future diagnoses."""
     c = ctx(request)
-    row = db.one("SELECT * FROM diagnoses WHERE id = ? AND org_id = ?", (diag_id, c["org_id"]))
+    row = db.one("SELECT * FROM diagnoses WHERE id = ? AND org_id = ? AND (cross_org = 0 OR ?)",
+                 (diag_id, c["org_id"], int(c["is_platform_admin"])))
     if row is None:
         raise HTTPException(404)
     if not body.fix.strip():
