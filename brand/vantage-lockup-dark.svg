@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 246 48" width="1230" height="240">
+  <title>Vantage by Torwood Aerospace Group</title>
+  <g transform="translate(0 4)">
+    <rect width="40" height="40" rx="9" fill="#20395c"/>
+    <path fill="#dea652" d="M20 5.5l3.4 4.6h-6.8z"/>
+    <path fill="#ffffff" d="M8.5 12.5h7.2L20 26.3l4.3-13.8h7.2L23.6 34h-7.2z"/>
+  </g>
+  <text x="52" y="27" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="24" letter-spacing="-0.24" fill="#ffffff">Vantage</text>
+  <text x="53" y="41" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-weight="600" font-size="7.6" letter-spacing="1.6" fill="#acb8cf">BY TORWOOD AEROSPACE GROUP</text>
+</svg>
