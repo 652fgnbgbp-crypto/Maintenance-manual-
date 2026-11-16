@@ -1,0 +1,62 @@
+VANTAGE · by Torwood Aerospace Group
+AI-assisted maintenance manuals and troubleshooting
+=====================================================
+
+This folder is the complete Vantage app. It runs on your own computer and opens in your web
+browser. It contains no manuals or maintenance data. You add your own once it's running.
+
+
+1. INSTALL PYTHON (once)
+------------------------
+Vantage needs Python 3.10 or newer.
+
+  Windows:  https://www.python.org/downloads/
+            In the installer, tick "Add python.exe to PATH".
+  Mac:      https://www.python.org/downloads/macos/
+  Linux:    usually already installed (python3 --version).
+
+
+2. ADD THE DESKTOP ICON (once)
+------------------------------
+  Windows:  double-click  "Install desktop icon (Windows).bat"
+  Mac:      right-click  "Install desktop icon (Mac).command"  and choose Open
+            (Right-click > Open is needed the first time because the file was downloaded.)
+  Linux:    run  ./install-desktop-icon-linux.sh
+
+A "Vantage" icon appears on your desktop. Leave this folder where it is.
+If you move the folder, run the installer again.
+
+
+3. START VANTAGE
+----------------
+Double-click the Vantage icon. You can also double-click "Start Vantage (Windows).bat",
+"Start Vantage (Mac).command" or start-vantage-linux.sh in this folder.
+
+  - The first start takes a few minutes and needs internet, while it installs its components.
+  - It asks for your Anthropic API key, which diagnosis needs. Press Enter to skip for now.
+    You can add the key later in the file settings.env, in this folder.
+  - Your browser opens at http://localhost:8765
+  - A small window stays open while Vantage runs. Close it to stop Vantage.
+
+
+4. USE IT
+---------
+  Organisation  Set your organisation name and aircraft type.
+  Library       Upload your manuals, wiring diagrams and photos.
+  Fix Log       Record problems you've solved and what fixed them.
+  Diagnose      Describe a defect; Vantage researches your data and shows highlighted diagrams.
+
+On your own computer Vantage runs without sign-in. Sign-in, teams and subscribers apply when
+it is hosted online: see README.md, "Hosting online".
+
+
+WHERE YOUR DATA IS KEPT
+-----------------------
+Everything you add is stored in the "data" folder created here: the database, uploaded files
+and page images. Back up that folder to keep your library. Delete it to start fresh.
+
+
+CONTINUING DEVELOPMENT WITH CLAUDE
+----------------------------------
+Give Claude this whole folder and ask it to read HANDOFF.md first. That file explains how
+Vantage works, every decision made so far, and what is still to do.

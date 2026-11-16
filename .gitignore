@@ -4,3 +4,8 @@ __pycache__/
 data/
 .env
 .pytest_cache/
+
+# test screenshots never belong in the repo
+/*.png
+settings.env
+.venv/

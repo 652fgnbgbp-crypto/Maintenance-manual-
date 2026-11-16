@@ -104,7 +104,13 @@ Inter typeface. All colours and fonts are in `app/static/theme.css`. The Vantage
 emblems are drawn as SVG in `app/static/index.html` and `login.html`. Swap in official logo artwork
 there if you have it.
 
-## Setup (local)
+## Run it on your own computer (desktop icon)
+
+See **START HERE.txt**. In short: install Python 3.10 or newer, run the "Install desktop icon"
+file for your system once, then double-click the Vantage icon. `launcher.py` sets everything up
+on first start, asks for the API key (saved in `settings.env`) and opens the browser.
+
+## Setup (local, manual)
 
 Requires Python 3.10+.
 
