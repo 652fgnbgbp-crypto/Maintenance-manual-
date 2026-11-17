@@ -55,6 +55,10 @@ def ensure_environment() -> None:
     req = (HOME / "requirements.txt").read_text()
     if marker.exists() and marker.read_text() == req:
         return
+    if venv_python().exists() and not marker.exists():
+        # an earlier first start failed part-way (for example on an unsupported Python): start clean
+        import shutil
+        shutil.rmtree(VENV, ignore_errors=True)
     if not venv_python().exists():
         say("First start: setting up Vantage (this takes a few minutes and needs internet)…")
         venv.EnvBuilder(with_pip=True).create(VENV)

@@ -1,6 +1,14 @@
 @echo off
 title Vantage
 cd /d "%~dp0"
+rem Prefer a well-supported Python version, then fall back to the newest one installed.
+for %%V in (3.13 3.12 3.11 3.14) do (
+  py -V:%%V -c "pass" >nul 2>nul
+  if not errorlevel 1 (
+    py -V:%%V launcher.py %*
+    goto :end
+  )
+)
 where py >nul 2>nul
 if %errorlevel%==0 (
   py -3 launcher.py %*
