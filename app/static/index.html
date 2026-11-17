@@ -298,6 +298,16 @@
   <button class="nav-btn" data-tab="team"><svg><use href="#i-team"/></svg><span>Organisation</span></button>
 </nav>
 
-<script src="/static/app.js"></script>
+<div id="jsError" class="js-error" hidden></div>
+<script>
+  // Show script problems on screen instead of failing silently.
+  window.addEventListener("error", function (e) {
+    var el = document.getElementById("jsError");
+    el.hidden = false;
+    el.textContent = "Vantage hit a problem in this browser: " + (e.message || "the app script did not load") +
+      ". Please send a photo of this message.";
+  }, true);
+</script>
+<script src="/static/app.js?v=2" onerror="this.dispatchEvent(new ErrorEvent('error',{message:'app.js could not be loaded'}))"></script>
 </body>
 </html>

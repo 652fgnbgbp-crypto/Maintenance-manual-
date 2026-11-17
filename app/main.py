@@ -12,6 +12,14 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import mimetypes
+
+# Windows reads file types from the registry, where .js is sometimes registered as text/plain;
+# browsers may then refuse to run the app's script. Set the types explicitly.
+for _ext, _type in ((".js", "text/javascript"), (".css", "text/css"), (".svg", "image/svg+xml"),
+                    (".webmanifest", "application/manifest+json"), (".png", "image/png")):
+    mimetypes.add_type(_type, _ext)
+
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
