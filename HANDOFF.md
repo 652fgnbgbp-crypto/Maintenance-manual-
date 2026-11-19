@@ -35,6 +35,7 @@ AeroQuiz platform (Part 66 exam practice).
 | Privacy | Each organisation's manuals, Fix Log and diagnoses are visible **only to that organisation**. |
 | Owner access | The owner's login (platform admin) can **read every organisation's Fix Log**, read-only, and the owner's **diagnoses draw on every operator's Fix Log**, each fix tagged with operator and aircraft type. Those diagnoses are hidden from everyone else, including other users in the owner's organisation. Manuals are **never** shared across organisations, not even with the owner. |
 | Manuals | Vantage is a tool. Customers upload their own manuals and keep them current. Torwood does not supply manuals. |
+| Questions | Diagnosis narrows the fault by elimination with **Yes / No / Unsure tick-box questions**. **Hard limit 15 per diagnosis**, asked in batches of up to 5, enforced by the server. When the limit is reached, the technician can press **Ask 5 more questions**, repeatable in steps of 5. Answers and a **Ruled out** list appear on the diagnosis. |
 | Platform | iPad first. Hosted online for customers (Docker image). Also runs locally from a desktop icon (`launcher.py`). |
 
 ## 3. How it works
@@ -46,7 +47,11 @@ app/
                 /api/diagnose streams progress (server-sent events).
   agent.py      The diagnosis agent: a manual tool-use loop with Claude.
                 Tools: search_library, view_page (page image + OCR text), search_notes (Fix Log),
-                locate_on_page, submit_diagnosis (strict JSON schema).
+                locate_on_page, ask_questions (pauses the run; the browser shows tick boxes and posts
+                {answers}), submit_diagnosis (strict JSON schema, with "eliminated" and
+                "more_questions_would_help").
+                Limits in config.py: QUESTION_LIMIT 15, QUESTION_EXTENSION 5, QUESTIONS_PER_BATCH 5.
+                /api/diagnose takes {question} | {answers} | {extend: true} with the session_id.
                 build_result() attaches highlight boxes and Fix Log cards, and drops anything
                 outside the organisation, any page not opened, and any Fix Log entry not retrieved.
   ingest.py     PDF/image/text -> pages. Reads ATA number, printed page, circuit name and

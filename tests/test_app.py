@@ -342,3 +342,82 @@ def test_organisations_are_isolated(app_env):
     assert staff.put(f"/api/admin/orgs/{org_b}/status", json={"status": "suspended"}).status_code == 200
     assert b.get("/api/documents").status_code == 402
     assert b.get("/api/info").json()["org_status"] == "suspended"
+
+
+def test_yes_no_questions_limit_and_extension(app_env):
+    """The AI asks tick-box questions; at most 15 in total unless the technician allows 5 more."""
+    from app import agent, config, db, ingest
+    src = app_env / "manual.pdf"
+    make_manual(src)
+    ingest.ingest_file(src, "manual.pdf", "Test manual")
+
+    def ask(id_, n, start=1):
+        return [_tool_use(id_, "ask_questions", {"intro": "Split the causes.", "questions": [
+            {"question": f"Question {start + i}?", "why": "w", "how_to_check": ""} for i in range(n)]})]
+
+    diag = {"summary": "s", "system": "Battery", "confidence": "medium", "effectivity_note": "",
+            "probable_causes": [{"rank": 1, "cause": "K45 coil", "likelihood": "high", "reasoning": "r",
+                                 "previous_fix_ids": []}],
+            "troubleshooting_steps": [], "reasoning": "r", "references": [], "previous_fixes": [],
+            "eliminated": [{"cause": "Master switch", "because": "No.2 works"}],
+            "more_questions_would_help": True, "safety_notes": [], "missing_info": []}
+    client = FakeClient([
+        ask("a1", 8),                         # asks 8 -> only 5 shown (batch size)
+        ask("a2", 5, 6),                      # 5 more (10 used)
+        ask("a3", 5, 11),                     # 5 more (15 used)
+        ask("a4", 5, 16),                     # over the limit -> refused by the server
+        [_tool_use("s1", "submit_diagnosis", diag)],
+        ask("a5", 5, 16),                     # after the technician allows 5 more
+        [_tool_use("s2", "submit_diagnosis", diag)],
+    ])
+    s = agent.get_or_create_session(None, "0123")
+    out = agent.run(s, "No.1 battery contactor will not close", lambda e: None, client=client)
+    assert out["type"] == "questions" and len(out["questions"]) == config.QUESTIONS_PER_BATCH
+    assert [q["id"] for q in out["questions"]] == ["q1", "q2", "q3", "q4", "q5"]
+    assert "at most 15" in client.requests[0]["messages"][0]["content"][-1]["text"]
+
+    out = agent.run(s, "", lambda e: None, client=client,
+                    answers=[{"id": "q1", "answer": "yes"}, {"id": "q2", "answer": "no"}, {"id": "q3", "answer": "bogus"}])
+    sent = client.requests[-1]["messages"][-1]["content"][0]
+    assert sent["tool_use_id"] == "a1"
+    assert "q1. Question 1? -> YES" in sent["content"] and "q2. Question 2? -> NO" in sent["content"]
+    assert "q3. Question 3? -> UNSURE" in sent["content"] and "q5. Question 5? -> UNSURE" in sent["content"]
+    assert out["type"] == "questions" and out["questions"][0]["id"] == "q6"
+
+    out = agent.run(s, "", lambda e: None, client=client, answers=[])
+    assert out["type"] == "questions" and out["questions"][-1]["id"] == "q15"
+
+    out = agent.run(s, "", lambda e: None, client=client, answers=[])
+    # the 4th ask was refused (limit), then the AI submitted
+    refused = client.requests[4]["messages"][-1]["content"][0]
+    assert refused["is_error"] and "limit reached (15)" in refused["content"]
+    assert out["type"] == "diagnosis"
+    r = out["result"]
+    assert r["questions_used"] == 15 and r["question_limit"] == 15 and len(r["answers"]) == 15
+    assert r["answers"][0] == {"question": "Question 1?", "answer": "yes", "why": "w"}
+    assert r["eliminated"][0]["cause"] == "Master switch" and r["more_questions_would_help"] is True
+
+    # technician allows 5 more
+    out = agent.run(s, "", lambda e: None, client=client, extend=True)
+    assert out["type"] == "questions" and [q["id"] for q in out["questions"]][0] == "q16"
+    assert "allowed 5 more questions (limit now 20" in client.requests[-1]["messages"][-1]["content"][-1]["text"]
+    out = agent.run(s, "", lambda e: None, client=client, answers=[{"id": "q16", "answer": "no"}])
+    assert out["type"] == "diagnosis" and out["result"]["question_limit"] == 20
+    assert out["result"]["questions_used"] == 20
+    labels = [d["question"] for d in db.query("SELECT question FROM diagnoses ORDER BY id")]
+    assert labels == ["No.1 battery contactor will not close", "(updated) No.1 battery contactor will not close"]
+
+
+def test_diagnose_stream_reports_done(app_env, monkeypatch):
+    """The finished event must keep type 'done' (the result's own type goes in 'kind')."""
+    from fastapi.testclient import TestClient
+    from app import agent
+    from app.main import app
+    monkeypatch.setattr(agent, "run", lambda s, q, emit, **kw: {"type": "questions", "session_id": s.id,
+                                                                 "questions": [], "trace": []})
+    with TestClient(app) as c:
+        body = c.post("/api/diagnose", json={"question": "Flaps inop"}).text
+        events = [json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")]
+        assert events[-1]["type"] == "done" and events[-1]["kind"] == "questions"
+        assert c.post("/api/diagnose", json={"question": ""}).status_code == 400
+        assert c.post("/api/diagnose", json={"answers": [{"id": "q1", "answer": "yes"}]}).status_code == 200

@@ -295,10 +295,17 @@ def remove_fix(note_id: int, request: Request):
 # ------------------------------------------------------------------ diagnosis
 
 
+class Answer(BaseModel):
+    id: str
+    answer: str  # yes | no | unsure
+
+
 class DiagnoseBody(BaseModel):
-    question: str
+    question: str = ""
     serial: str = ""
     session_id: str | None = None
+    answers: list[Answer] | None = None
+    extend: bool = False
 
 
 def _sse(event: dict) -> str:
@@ -308,7 +315,7 @@ def _sse(event: dict) -> str:
 @app.post("/api/diagnose")
 def diagnose(body: DiagnoseBody, request: Request):
     c = ctx(request)
-    if not body.question.strip():
+    if not body.question.strip() and body.answers is None and not body.extend:
         raise HTTPException(400, "Describe the problem first.")
     org = org_row(c["org_id"])
     # Only a signed-in Torwood platform admin draws on every operator's Fix Log.
@@ -319,8 +326,9 @@ def diagnose(body: DiagnoseBody, request: Request):
 
     def worker():
         try:
-            result = agent.run(session, body.question.strip(), events.put)
-            events.put({"type": "done", **result})
+            answers = [a.model_dump() for a in body.answers] if body.answers is not None else None
+            result = agent.run(session, body.question.strip(), events.put, answers=answers, extend=body.extend)
+            events.put({**result, "kind": result["type"], "type": "done"})
         except Exception as e:
             events.put({"type": "error", "text": f"{type(e).__name__}: {e}"})
         finally:

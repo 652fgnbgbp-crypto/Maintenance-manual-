@@ -39,10 +39,19 @@ components). These are problems this organisation's engineers have already solve
 entry is relevant, list it in previous_fixes and link it to the causes it supports with previous_fix_ids. Treat it \
 as strong field evidence when the symptom matches, but still check it against the manual: a past fix can be a \
 different fault with a similar symptom.
-6. Before submitting, call locate_on_page for each page you will cite, with the exact labels you intend to \
+6. Narrow it down by elimination. When more than one cause is still plausible, call ask_questions with \
+yes/no questions for the technician, each chosen to rule causes in or out (for example "Does the landing gear \
+operate normally?" splits a shared hydraulic fault from a flap-only one). Ask only what the technician can answer \
+quickly by looking, listening, or a simple check, and say how to check it. Never ask what the manual or Fix Log \
+already answers. Ask the most discriminating questions first, in batches of up to {batch}. The technician answers \
+Yes, No or Unsure: treat Unsure as no information. There is a hard limit on the total number of questions (given \
+in the first message); ask fewer when the answer is already clear. Do your library research before asking, so \
+the questions name the real components and checks. After the answers, record in "eliminated" each cause they \
+ruled out and why.
+7. Before submitting, call locate_on_page for each page you will cite, with the exact labels you intend to \
 highlight (reference designators, wire numbers, component names as printed). Only highlight terms that were found; \
 if a key item cannot be found because the OCR is poor, describe it in a region instead.
-7. Call submit_diagnosis once with your answer. Rank probable causes from most to least likely, and give \
+8. Call submit_diagnosis once with your answer. Rank probable causes from most to least likely, and give \
 practical isolation steps (what to measure, where, the expected reading) that tell the causes apart, cheapest and \
 quickest checks first.
 
@@ -52,8 +61,9 @@ Rules:
 wire numbers or values that you did not read in the library.
 - If the library does not contain the circuit, say so plainly in the summary, give general guidance marked as \
 such, and list what data would be needed.
-- If the symptom is ambiguous, still give your best ranked diagnosis and put the questions that would narrow it \
-down in missing_info.
+- If the symptom is still ambiguous when the question limit is reached, give your best ranked diagnosis, set \
+more_questions_would_help to true, and put what you would still ask in missing_info.
+- ask_questions and submit_diagnosis must each be the only tool call in their turn.
 - This is decision support for a qualified technician. Include relevant safety notes (e.g. pull circuit breakers, \
 battery disconnect, propeller/engine hazards) and remind them to follow the approved maintenance data.
 - Write for a technician: concise, specific, no filler."""
@@ -115,6 +125,33 @@ TOOLS = [
                 "terms": {"type": "array", "items": {"type": "string"}},
             },
             "required": ["doc_id", "page", "terms"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "name": "ask_questions",
+        "description": "Ask the technician yes/no questions to rule causes in or out. They answer each with "
+                       "Yes, No or Unsure using tick boxes. Call it on its own; the answers come back as the result.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "intro": {"type": "string", "description": "One short sentence: what these questions will tell apart."},
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "question": {"type": "string", "description": "A yes/no question, e.g. 'Does the landing gear cycle normally?'"},
+                            "why": {"type": "string", "description": "What a Yes and a No would each rule out, in a few words."},
+                            "how_to_check": {"type": "string", "description": "How to check it (where to look or measure), or empty if it is a plain observation."},
+                        },
+                        "required": ["question", "why", "how_to_check"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["intro", "questions"],
             "additionalProperties": False,
         },
         "strict": True,
@@ -218,12 +255,24 @@ TOOLS = [
                         "additionalProperties": False,
                     },
                 },
+                "eliminated": {
+                    "type": "array",
+                    "description": "Causes ruled out by the technician's answers or checks, and why. Empty if none.",
+                    "items": {
+                        "type": "object",
+                        "properties": {"cause": {"type": "string"}, "because": {"type": "string"}},
+                        "required": ["cause", "because"],
+                        "additionalProperties": False,
+                    },
+                },
+                "more_questions_would_help": {"type": "boolean",
+                                              "description": "True if more yes/no answers would materially narrow the diagnosis."},
                 "safety_notes": {"type": "array", "items": {"type": "string"}},
                 "missing_info": {"type": "array", "items": {"type": "string"}, "description": "Questions or data that would narrow the diagnosis."},
             },
             "required": ["summary", "system", "confidence", "effectivity_note", "probable_causes",
-                         "troubleshooting_steps", "reasoning", "references", "previous_fixes", "safety_notes",
-                         "missing_info"],
+                         "troubleshooting_steps", "reasoning", "references", "previous_fixes", "eliminated",
+                         "more_questions_would_help", "safety_notes", "missing_info"],
             "additionalProperties": False,
         },
         "strict": True,
@@ -382,6 +431,11 @@ class Session:
         self.aircraft_type = aircraft_type or config.AIRCRAFT_TYPE
         self.user_name = user_name
         self.seen_notes: set = set()
+        self.pending_kind = ""                 # "questions" or "diagnosis"
+        self.pending_questions: list = []      # questions shown to the technician, awaiting answers
+        self.qa: list = []                     # every question asked and its answer
+        self.question_limit = config.QUESTION_LIMIT
+        self.question_text = ""                # the original problem description
         self.all_fixes = all_fixes  # Torwood platform admin: draw on every operator's Fix Log
         self.user_id: int | None = None
         self.messages: list = []
@@ -415,30 +469,82 @@ def _client() -> anthropic.Anthropic:
     return anthropic.Anthropic(max_retries=4)
 
 
-def run(session: Session, user_text: str, emit: Emit, client=None) -> dict:
-    """Run the agent for one technician message. Returns {'type': 'diagnosis'|'message', ...}."""
+ANSWER_LABEL = {"yes": "YES", "no": "NO", "unsure": "UNSURE (no information)"}
+
+
+def _answers_result(session: Session, answers: list | None, note: str) -> str:
+    """Record the technician's tick-box answers and format them for the model."""
+    given = {a.get("id"): (a.get("answer") or "unsure").lower() for a in (answers or [])}
+    lines = []
+    for q in session.pending_questions:
+        ans = given.get(q["id"], "unsure")
+        if ans not in ANSWER_LABEL:
+            ans = "unsure"
+        session.qa.append({"question": q["question"], "answer": ans, "why": q["why"]})
+        lines.append(f"{q['id']}. {q['question']} -> {ANSWER_LABEL[ans]}")
+    step = {"kind": "answers", "text": "Answered: " + ", ".join(f"{q['id']} {given.get(q['id'], 'unsure')}"
+                                                             for q in session.pending_questions),
+            "items": session.qa[-len(session.pending_questions):]}
+    session.trace.append(step)
+    session.pending_questions = []
+    used = len(session.qa)
+    text = "Technician's answers:\n" + "\n".join(lines)
+    if note:
+        text += f"\n\nTechnician's note: {note}"
+    text += f"\n\nQuestions used: {used} of {session.question_limit}."
+    return text
+
+
+def run(session: Session, user_text: str, emit: Emit, client=None, answers: list | None = None,
+        extend: bool = False) -> dict:
+    """Run the agent for one technician turn. Returns {'type': 'diagnosis'|'questions'|'message', ...}.
+
+    answers: tick-box answers to the pending questions, [{"id": "q1", "answer": "yes"|"no"|"unsure"}].
+    extend: the technician allows QUESTION_EXTENSION more questions."""
     client = client or _client()
     with session.lock:
         session.updated = time.time()
         first = not session.messages
+        content: list = []
+        if session.pending_tool_use:
+            if session.pending_kind == "questions":
+                result_text = _answers_result(session, answers, "" if answers is not None else user_text)
+                if answers is None:
+                    user_text = ""  # the free text was passed on as the answer note
+            else:
+                result_text = "Diagnosis delivered to the technician."
+            content.append({"type": "tool_result", "tool_use_id": session.pending_tool_use, "content": result_text})
+            session.pending_tool_use = None
+            session.pending_kind = ""
+        if extend:
+            session.question_limit += config.QUESTION_EXTENSION
+            session.trace.append({"kind": "text", "text": f"Technician allowed {config.QUESTION_EXTENSION} more questions."})
         if first:
+            session.question_text = user_text
             serial_line = f"Aircraft serial number: {session.serial}" if session.serial else \
                 "Aircraft serial number: not given"
             scope = ("\nFix Log scope: search_notes covers the Fix Logs of EVERY operator subscribed to Vantage. "
                      "Each entry names its operator and that operator's aircraft type; an entry from a different "
                      "aircraft type is weaker evidence, so say so when you cite it.") if session.all_fixes else ""
-            text = f"{library_overview(session.org_id)}{scope}\n\n{serial_line}\n\nReported problem:\n{user_text}"
+            budget = (f"\nQuestion limit: you may ask at most {session.question_limit} yes/no questions in total for "
+                      f"this diagnosis, in batches of up to {config.QUESTIONS_PER_BATCH}.")
+            content.append({"type": "text", "text": f"{library_overview(session.org_id)}{scope}{budget}\n\n"
+                                                    f"{serial_line}\n\nReported problem:\n{user_text}"})
         else:
-            text = f"Technician follow-up:\n{user_text}"
-        content: list = []
-        if session.pending_tool_use:
-            content.append({"type": "tool_result", "tool_use_id": session.pending_tool_use,
-                            "content": "Diagnosis delivered to the technician."})
-            session.pending_tool_use = None
-        content.append({"type": "text", "text": text})
+            parts = []
+            if extend:
+                parts.append(f"The technician has allowed {config.QUESTION_EXTENSION} more questions (limit now "
+                             f"{session.question_limit}, {len(session.qa)} used). Ask the most useful remaining "
+                             "questions, then submit an updated diagnosis.")
+            if user_text:
+                parts.append(f"Technician follow-up:\n{user_text}")
+            if parts:
+                content.append({"type": "text", "text": "\n\n".join(parts)})
+        if not content:
+            content.append({"type": "text", "text": "Continue."})
         session.messages.append({"role": "user", "content": content})
 
-        system = SYSTEM_PROMPT.format(aircraft=session.aircraft_type)
+        system = SYSTEM_PROMPT.format(aircraft=session.aircraft_type, batch=config.QUESTIONS_PER_BATCH)
         for turn in range(config.MAX_AGENT_TURNS):
             emit({"type": "status", "text": "Thinking…" if turn == 0 else "Analysing…"})
             with client.beta.messages.stream(
@@ -480,19 +586,50 @@ def run(session: Session, user_text: str, emit: Emit, client=None) -> dict:
                 answer = "\n".join(b.text for b in response.content if b.type == "text").strip()
                 return {"type": "message", "text": answer, "session_id": session.id, "trace": session.trace}
 
+            if len(tool_uses) == 1 and tool_uses[0].name == "ask_questions":
+                block = tool_uses[0]
+                remaining = session.question_limit - len(session.qa)
+                if remaining <= 0:
+                    session.messages.append({"role": "user", "content": [{
+                        "type": "tool_result", "tool_use_id": block.id, "is_error": True,
+                        "content": f"Question limit reached ({session.question_limit}). Submit your diagnosis now with "
+                                   "what you have; set more_questions_would_help if more answers would materially "
+                                   "narrow it."}]})
+                    continue
+                qs = (block.input.get("questions") or [])[:min(remaining, config.QUESTIONS_PER_BATCH)]
+                if not qs:
+                    session.messages.append({"role": "user", "content": [{
+                        "type": "tool_result", "tool_use_id": block.id, "is_error": True,
+                        "content": "No questions were given."}]})
+                    continue
+                start_no = len(session.qa) + 1
+                session.pending_questions = [{"id": f"q{start_no + i}", "question": q["question"], "why": q["why"],
+                                              "how_to_check": q["how_to_check"]} for i, q in enumerate(qs)]
+                session.pending_tool_use = block.id
+                session.pending_kind = "questions"
+                step = {"kind": "questions", "text": f"Asked {len(qs)} question{'s' if len(qs) != 1 else ''} "
+                                                     f"({start_no}–{start_no + len(qs) - 1} of up to {session.question_limit})"}
+                session.trace.append(step)
+                emit({"type": "step", **step})
+                return {"type": "questions", "session_id": session.id, "intro": block.input.get("intro", ""),
+                        "questions": session.pending_questions, "used_before": len(session.qa),
+                        "limit": session.question_limit, "trace": session.trace}
+
             submit = next((b for b in tool_uses if b.name == "submit_diagnosis"), None)
-            if submit is not None:
-                others = [b for b in tool_uses if b is not submit]
-                if not others:
-                    result = build_result(submit.input, session.viewed, session.org_id, session.seen_notes,
-                                          all_orgs=session.all_fixes)
-                    session.pending_tool_use = submit.id
-                    session.diagnosis_id = db.save_diagnosis(user_text if first else f"(follow-up) {user_text}",
-                                                             session.serial, result, session.trace,
-                                                             org_id=session.org_id, created_by=session.user_name,
-                                                             cross_org=session.all_fixes)
-                    return {"type": "diagnosis", "session_id": session.id, "diagnosis_id": session.diagnosis_id,
-                            "result": result, "trace": session.trace}
+            if submit is not None and len(tool_uses) == 1:
+                result = build_result(submit.input, session.viewed, session.org_id, session.seen_notes,
+                                      all_orgs=session.all_fixes)
+                result["answers"] = list(session.qa)
+                result["questions_used"] = len(session.qa)
+                result["question_limit"] = session.question_limit
+                session.pending_tool_use = submit.id
+                session.pending_kind = "diagnosis"
+                label = session.question_text if session.diagnosis_id is None else f"(updated) {session.question_text}"
+                session.diagnosis_id = db.save_diagnosis(label, session.serial, result, session.trace,
+                                                         org_id=session.org_id, created_by=session.user_name,
+                                                         cross_org=session.all_fixes)
+                return {"type": "diagnosis", "session_id": session.id, "diagnosis_id": session.diagnosis_id,
+                        "result": result, "trace": session.trace}
 
             results = []
             for b in tool_uses:
@@ -528,9 +665,9 @@ def _execute(block, session: Session, emit: Emit) -> dict:
             step = {"kind": "locate", "text": f"Located {', '.join(inp['terms'][:6])} on page {inp['page']}",
                     "doc_id": inp["doc_id"], "page": inp["page"]}
             out = tool_locate(inp, session.org_id)
-        elif name == "submit_diagnosis":
+        elif name in ("submit_diagnosis", "ask_questions"):
             step = None
-            out = "Submit the diagnosis on its own, without other tool calls in the same turn."
+            out = f"Call {name} on its own, without other tool calls in the same turn."
             return {"type": "tool_result", "tool_use_id": block.id, "content": out, "is_error": True}
         else:
             return {"type": "tool_result", "tool_use_id": block.id, "content": f"Unknown tool {name}", "is_error": True}

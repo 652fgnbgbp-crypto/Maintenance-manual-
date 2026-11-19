@@ -299,21 +299,21 @@ function clearResult() {
   $("#viewerEmpty").classList.remove("hidden");
 }
 
-async function runDiagnosis(question) {
+async function runDiagnosis(question, extra = {}) {
   const btn = $("#diagBtn");
   btn.disabled = true;
   $$("#followForm button").forEach((b) => (b.disabled = true));
   $("#progress").classList.remove("hidden");
   $("#newDiag").classList.remove("hidden");
   $("#spinner").classList.remove("stopped");
-  $("#progressTitle").textContent = "Researching your maintenance data…";
-  $("#trace").innerHTML = "";
+  $("#progressTitle").textContent = extra.answers ? "Using your answers…" : "Researching your maintenance data…";
+  if (!sessionId) $("#trace").innerHTML = "";
   if (narrow()) $("#progress").scrollIntoView({ behavior: "smooth", block: "start" });
   try {
     const res = await fetch("/api/diagnose", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, serial: $("#serial").value, session_id: sessionId }),
+      body: JSON.stringify({ question: question || "", serial: $("#serial").value, session_id: sessionId, ...extra }),
     });
     if (res.status === 401) { location.href = "/login"; return; }
     if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
@@ -374,11 +374,79 @@ function handleEvent(ev) {
     $("#trace").appendChild(li);
   } else if (ev.type === "done") {
     sessionId = ev.session_id;
+    if (ev.kind === "questions") {
+      $("#progressTitle").textContent = "Vantage has some questions for you";
+      $("#followForm").classList.add("hidden");
+      renderQuestions(ev);
+      return;
+    }
     $("#progressTitle").textContent = `Done: ${ev.trace.filter((s) => s.kind === "view").length} pages reviewed`;
-    if (ev.result) renderDiagnosis(ev.result, ev.diagnosis_id, null);
+    if (ev.kind === "diagnosis") renderDiagnosis(ev.result, ev.diagnosis_id, null);
     else renderMessage(ev.text);
     $("#followForm").classList.remove("hidden");
   }
+}
+
+// ---- Yes / No / Unsure questions (process of elimination)
+const ANSWERS = [["yes", "Yes"], ["no", "No"], ["unsure", "Unsure"]];
+
+function renderQuestions(ev) {
+  const el = $("#result");
+  el.classList.remove("hidden");
+  $$(".qcard.active", el).forEach((c) => c.parentNode.removeChild(c));
+  const first = ev.used_before + 1, last = ev.used_before + ev.questions.length;
+  const card = document.createElement("div");
+  card.className = "card qcard active";
+  card.innerHTML = `
+    <div class="q-head"><span class="q-title">Questions</span>
+      <span class="q-count">${first === last ? first : first + "–" + last} of up to ${ev.limit}</span></div>
+    ${ev.intro ? `<p class="q-intro">${esc(ev.intro)}</p>` : ""}
+    ${ev.questions.map((q) => `<fieldset class="q" data-id="${esc(q.id)}">
+        <legend><span class="q-no">${esc(q.id.slice(1))}</span>${esc(q.question)}</legend>
+        ${q.how_to_check ? `<div class="q-how"><b>How to check:</b> ${esc(q.how_to_check)}</div>` : ""}
+        <div class="q-opts">${ANSWERS.map(([v, label]) => `<label class="tick ${v}"><input type="radio" name="${esc(q.id)}" value="${v}"><span class="box"></span>${label}</label>`).join("")}</div>
+      </fieldset>`).join("")}
+    <div class="q-actions"><button type="button" class="ghost" data-a="unsure">Mark unanswered as Unsure</button>
+      <button type="button" class="primary big" data-a="send" disabled>Send answers</button></div>`;
+  el.prepend(card);
+  const send = card.querySelector('[data-a="send"]');
+  const update = () => { send.disabled = $$("fieldset.q", card).some((f) => !$("input:checked", f)); };
+  card.addEventListener("change", update);
+  card.querySelector('[data-a="unsure"]').addEventListener("click", () => {
+    $$("fieldset.q", card).forEach((f) => { if (!$("input:checked", f)) $('input[value="unsure"]', f).checked = true; });
+    update();
+  });
+  send.addEventListener("click", () => {
+    const answers = $$("fieldset.q", card).map((f) => ({ id: f.dataset.id, answer: $("input:checked", f).value }));
+    card.classList.replace("active", "answered");
+    $$("input, button", card).forEach((i) => (i.disabled = true));
+    const actions = card.querySelector(".q-actions");
+    actions.parentNode.removeChild(actions);
+    runDiagnosis(null, { answers });
+  });
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function answersCard(r) {
+  const a = r.answers || [];
+  if (!a.length) return "";
+  const label = { yes: "Yes", no: "No", unsure: "Unsure" };
+  return `<div class="card"><div class="card-title">Your answers <span class="count">· ${a.length} of ${r.question_limit} questions used</span></div>
+    <ul class="qa">${a.map((x) => `<li><span class="ans ${esc(x.answer)}">${label[x.answer] || "Unsure"}</span>${esc(x.question)}</li>`).join("")}</ul></div>`;
+}
+
+function eliminatedCard(r) {
+  const e = r.eliminated || [];
+  if (!e.length) return "";
+  return `<div class="card"><div class="card-title">Ruled out</div>
+    <ul class="ruled">${e.map((x) => `<li><s>${esc(x.cause)}</s><span>${esc(x.because)}</span></li>`).join("")}</ul></div>`;
+}
+
+function moreQuestionsCard(r, live) {
+  if (!live || r.question_limit == null || r.questions_used < r.question_limit) return "";
+  return `<div class="card more-q"><div><b>Question limit reached</b> (${r.questions_used} of ${r.question_limit}).
+    ${r.more_questions_would_help ? "Vantage thinks more answers would narrow this down further." : "Ask more only if the diagnosis is still unclear."}</div>
+    <button class="primary" id="moreQuestions">Ask 5 more questions</button></div>`;
 }
 
 function renderMessage(text) {
@@ -387,7 +455,7 @@ function renderMessage(text) {
   el.insertAdjacentHTML("beforeend", `<div class="card md">${md(text)}</div>`);
 }
 
-function renderDiagnosis(r, diagnosisId, resolution) {
+function renderDiagnosis(r, diagnosisId, resolution, live = true) {
   currentDiagnosisId = diagnosisId;
   currentRefs = r.references || [];
   const el = $("#result");
@@ -403,6 +471,9 @@ function renderDiagnosis(r, diagnosisId, resolution) {
       <div class="summary md">${md(r.summary)}</div>
       ${r.effectivity_note ? `<div class="hint">Effectivity: ${esc(r.effectivity_note)}</div>` : ""}
     </div>
+    ${moreQuestionsCard(r, live)}
+    ${answersCard(r)}
+    ${eliminatedCard(r)}
     ${fixes.length ? resolvedBox(fixes, r.fix_scope === "all_operators") : ""}
     <div class="card">
       <div class="card-title">Probable causes</div>
@@ -440,6 +511,8 @@ function renderDiagnosis(r, diagnosisId, resolution) {
     selectRef(+b.dataset.ref);
     if (narrow()) diagViewer.setFull(true);
   }));
+  const more = $("#moreQuestions");
+  if (more) more.addEventListener("click", () => { more.disabled = true; runDiagnosis(null, { extend: true }); });
   const save = $("#saveResolution");
   if (save) save.addEventListener("click", async () => {
     const v = $("#resolution").value.trim();
@@ -749,7 +822,7 @@ async function refreshHistory() {
     $("#trace").innerHTML = "";
     d.trace.forEach(addTrace);
     $("#followForm").classList.add("hidden");
-    renderDiagnosis(d.result, d.id, d.resolution);
+    renderDiagnosis(d.result, d.id, d.resolution, false);
     $("#diagLeft").scrollTop = 0;
   }));
 }

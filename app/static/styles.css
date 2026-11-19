@@ -101,6 +101,7 @@ button.danger { color: var(--danger); }
 .trace li.search::before { content: "⌕"; } .trace li.view::before { content: "▤"; } .trace li.notes::before { content: "✎"; }
 .trace li.locate::before { content: "◎"; } .trace li.thinking::before { content: "…"; } .trace li.text::before { content: "›"; }
 .trace li.thinking, .trace li.text { color: var(--muted); }
+.trace li.questions::before { content: "?"; font-weight: 700; } .trace li.answers::before { content: "✓"; }
 .trace a { color: var(--link); cursor: pointer; }
 .trace details summary { cursor: pointer; }
 
@@ -285,3 +286,39 @@ body.not-admin #orgForm input { pointer-events: none; background: none; border-c
 .scope-row label { margin-top: 0; }
 .org-tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: var(--brand); color: var(--gold); margin-bottom: 6px; }
 .js-error { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 200; background: var(--danger); color: #fff; padding: 14px 18px; border-radius: 12px; font-weight: 600; }
+
+/* ---------------------------------------------------------------- Yes / No / Unsure questions */
+.qcard { border: 2px solid var(--gold); }
+.qcard.answered { border-color: var(--border); opacity: .75; }
+.q-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.q-title { font: 800 19px/1.2 var(--font-display); }
+.q-count { color: var(--muted); font-size: 14px; font-weight: 600; }
+.q-intro { color: var(--muted); margin: 6px 0 4px; }
+fieldset.q { border: 0; border-top: 1px solid var(--border); margin: 0; padding: 14px 0 12px; min-width: 0; }
+fieldset.q legend { float: left; width: 100%; padding: 0; font-weight: 650; font-size: 16.5px; display: flex; gap: 10px; }
+.q-no { flex: none; width: 26px; height: 26px; border-radius: 8px; background: var(--brand); color: var(--gold); display: grid; place-items: center; font-size: 13.5px; }
+.q-how { clear: both; font-size: 14px; color: var(--muted); padding: 6px 0 0 36px; }
+.q-opts { clear: both; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 0 0 36px; }
+.tick { position: relative; display: flex; align-items: center; gap: 10px; min-height: 52px; margin: 0; padding: 0 14px;
+  border: 1.5px solid var(--border); border-radius: 12px; background: var(--surface-2); font-size: 16.5px; font-weight: 600; cursor: pointer; }
+.tick input { position: absolute; opacity: 0; pointer-events: none; }
+.tick .box { width: 24px; height: 24px; border: 2px solid var(--muted); border-radius: 6px; flex: none; display: grid; place-items: center; }
+.tick input:checked + .box::after { content: "✓"; font-weight: 800; font-size: 17px; line-height: 1; color: #fff; }
+.tick.yes:has(input:checked) { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--surface)); }
+.tick.yes input:checked + .box { background: var(--ok); border-color: var(--ok); }
+.tick.no:has(input:checked) { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
+.tick.no input:checked + .box { background: var(--danger); border-color: var(--danger); }
+.tick.unsure:has(input:checked) { border-color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, var(--surface)); }
+.tick.unsure input:checked + .box { background: var(--muted); border-color: var(--muted); }
+.tick input:focus-visible + .box { outline: 3px solid color-mix(in srgb, var(--gold) 50%, transparent); outline-offset: 2px; }
+.q-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; border-top: 1px solid var(--border); padding-top: 14px; flex-wrap: wrap; }
+ul.qa, ul.ruled { list-style: none; padding: 0; margin: 0; }
+ul.qa li { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--border); }
+ul.qa li:first-child, ul.ruled li:first-child { border-top: 0; }
+.ans { flex: none; min-width: 64px; text-align: center; font-size: 13px; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #fff; }
+.ans.yes { background: var(--ok); } .ans.no { background: var(--danger); } .ans.unsure { background: var(--muted); }
+ul.ruled li { padding: 8px 0; border-top: 1px solid var(--border); display: grid; gap: 2px; }
+ul.ruled s { font-weight: 650; color: var(--muted); }
+ul.ruled span { font-size: 14.5px; }
+.more-q { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; border: 2px solid var(--gold); }
+@media (max-width: 560px) { .q-opts, .q-how { padding-left: 0; } }

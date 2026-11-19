@@ -18,6 +18,10 @@ DIAGNOSIS_MODEL = os.environ.get("MX_DIAGNOSIS_MODEL", "claude-opus-5-5")
 ENRICH_MODEL = os.environ.get("MX_ENRICH_MODEL", "claude-opus-5-5")
 DIAGNOSIS_EFFORT = os.environ.get("MX_DIAGNOSIS_EFFORT", "high")
 MAX_AGENT_TURNS = int(os.environ.get("MX_MAX_AGENT_TURNS", "24"))
+# Yes / No / Unsure questions the AI may ask per diagnosis, and how many more each "Ask 5 more" allows.
+QUESTION_LIMIT = 15
+QUESTION_EXTENSION = 5
+QUESTIONS_PER_BATCH = 5
 
 # Long edge, in pixels, of page images sent to the model (1568 is the model's sweet spot).
 MODEL_IMAGE_LONG_EDGE = 1568
