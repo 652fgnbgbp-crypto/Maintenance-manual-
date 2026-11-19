@@ -163,7 +163,8 @@ def test_agent_loop_produces_highlighted_diagnosis(app_env):
     found = {h["term"]: len(h["boxes"]) for h in ref["highlights"]}
     assert found == {"K45": 1, "BATTERY NO. 1 CONTACTOR": 1, "NOT-ON-PAGE": 0}
     kinds = [e.get("kind") for e in events if e["type"] == "step"]
-    assert kinds == ["thinking", "search", "notes", "view", "locate"]
+    assert kinds == ["search", "notes", "view", "locate"]  # working notes are not shown, only research steps
+    assert client.requests[0]["thinking"]["display"] == "omitted"
 
     # cited Fix Log entries come back as full "Previously resolved" cards; invented ids are dropped
     fixes = out["result"]["previous_fixes"]
@@ -352,8 +353,12 @@ def test_yes_no_questions_limit_and_extension(app_env):
     ingest.ingest_file(src, "manual.pdf", "Test manual")
 
     def ask(id_, n, start=1):
-        return [_tool_use(id_, "ask_questions", {"intro": "Split the causes.", "questions": [
-            {"question": f"Question {start + i}?", "why": "w", "how_to_check": ""} for i in range(n)]})]
+        return [_tool_use(id_, "ask_questions", {
+            "intro": "Cabin will not reach max differential.",
+            "likely_causes": [{"cause": "Outflow valve not seating", "reason": "commonest cause"}],
+            "unlikely_causes": [{"cause": "Door seal leak", "reason": "would hiss"}],
+            "questions": [{"question": f"Question {start + i}?", "why": "w", "how_to_check": "",
+                           "narrows": "unlikely" if i == 1 else ("bogus" if i == 2 else "likely")} for i in range(n)]})]
 
     diag = {"summary": "s", "system": "Battery", "confidence": "medium", "effectivity_note": "",
             "probable_causes": [{"rank": 1, "cause": "K45 coil", "likelihood": "high", "reasoning": "r",
@@ -373,6 +378,10 @@ def test_yes_no_questions_limit_and_extension(app_env):
     s = agent.get_or_create_session(None, "0123")
     out = agent.run(s, "No.1 battery contactor will not close", lambda e: None, client=client)
     assert out["type"] == "questions" and len(out["questions"]) == config.QUESTIONS_PER_BATCH
+    assert out["likely_causes"][0]["cause"] == "Outflow valve not seating"
+    assert out["unlikely_causes"][0]["cause"] == "Door seal leak"
+    assert [q["narrows"] for q in out["questions"]] == ["likely", "unlikely", "likely", "likely", "likely"]
+    assert "Never narrate" in client.requests[0]["system"]
     assert [q["id"] for q in out["questions"]] == ["q1", "q2", "q3", "q4", "q5"]
     assert "at most 15" in client.requests[0]["messages"][0]["content"][-1]["text"]
 

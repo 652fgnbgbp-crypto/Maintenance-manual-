@@ -66,7 +66,11 @@ more_questions_would_help to true, and put what you would still ask in missing_i
 - ask_questions and submit_diagnosis must each be the only tool call in their turn.
 - This is decision support for a qualified technician. Include relevant safety notes (e.g. pull circuit breakers, \
 battery disconnect, propeller/engine hazards) and remind them to follow the approved maintenance data.
-- Write for a technician: concise, specific, no filler."""
+- Write for a technician: concise, specific, no filler.
+- Never narrate your own work ("I'm checking", "I'm now looking at", "Let me"). Do not write "I" or "we". \
+State findings directly, for example "The likely causes are …", "This rules out …", "Check …".
+- When you ask questions, sort the causes still in play into likely_causes and unlikely_causes, and tag each \
+question with which group it narrows down."""
 
 TOOLS = [
     {
@@ -136,7 +140,21 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "intro": {"type": "string", "description": "One short sentence: what these questions will tell apart."},
+                "intro": {"type": "string", "description": "One short sentence stating the symptom being narrowed down, no first person."},
+                "likely_causes": {
+                    "type": "array",
+                    "description": "Causes still in play that are most likely, most likely first.",
+                    "items": {"type": "object",
+                              "properties": {"cause": {"type": "string"}, "reason": {"type": "string", "description": "Why it fits, in a few words."}},
+                              "required": ["cause", "reason"], "additionalProperties": False},
+                },
+                "unlikely_causes": {
+                    "type": "array",
+                    "description": "Causes still possible but less likely. Empty if none.",
+                    "items": {"type": "object",
+                              "properties": {"cause": {"type": "string"}, "reason": {"type": "string", "description": "Why it is less likely, in a few words."}},
+                              "required": ["cause", "reason"], "additionalProperties": False},
+                },
                 "questions": {
                     "type": "array",
                     "items": {
@@ -145,13 +163,15 @@ TOOLS = [
                             "question": {"type": "string", "description": "A yes/no question, e.g. 'Does the landing gear cycle normally?'"},
                             "why": {"type": "string", "description": "What a Yes and a No would each rule out, in a few words."},
                             "how_to_check": {"type": "string", "description": "How to check it (where to look or measure), or empty if it is a plain observation."},
+                            "narrows": {"type": "string", "enum": ["likely", "unlikely"],
+                                        "description": "Whether this question confirms or rules out the likely causes or the unlikely ones."},
                         },
-                        "required": ["question", "why", "how_to_check"],
+                        "required": ["question", "why", "how_to_check", "narrows"],
                         "additionalProperties": False,
                     },
                 },
             },
-            "required": ["intro", "questions"],
+            "required": ["intro", "likely_causes", "unlikely_causes", "questions"],
             "additionalProperties": False,
         },
         "strict": True,
@@ -553,7 +573,7 @@ def run(session: Session, user_text: str, emit: Emit, client=None, answers: list
                 system=system,
                 tools=TOOLS,
                 messages=session.messages,
-                thinking={"type": "adaptive", "display": "summarized"},
+                thinking={"type": "adaptive", "display": "omitted"},
                 output_config={"effort": config.DIAGNOSIS_EFFORT},
                 cache_control={"type": "ephemeral"},
                 betas=["server-side-fallback-2026-07-01"],
@@ -567,15 +587,8 @@ def run(session: Session, user_text: str, emit: Emit, client=None, answers: list
             # Append the content exactly as returned (thinking blocks must be passed back unchanged).
             session.messages.append({"role": "assistant", "content": response.content})
 
-            for b in response.content:
-                if b.type == "thinking" and getattr(b, "thinking", ""):
-                    step = {"kind": "thinking", "text": b.thinking}
-                    session.trace.append(step)
-                    emit({"type": "step", **step})
-                elif b.type == "text" and b.text.strip():
-                    step = {"kind": "text", "text": b.text}
-                    session.trace.append(step)
-                    emit({"type": "step", **step})
+            # The model's working notes (thinking summaries, text between tool calls) are not shown:
+            # the progress view lists only the factual research steps.
 
             tool_uses = [b for b in response.content if b.type == "tool_use"]
             if response.stop_reason == "pause_turn":
@@ -604,7 +617,9 @@ def run(session: Session, user_text: str, emit: Emit, client=None, answers: list
                     continue
                 start_no = len(session.qa) + 1
                 session.pending_questions = [{"id": f"q{start_no + i}", "question": q["question"], "why": q["why"],
-                                              "how_to_check": q["how_to_check"]} for i, q in enumerate(qs)]
+                                              "how_to_check": q.get("how_to_check", ""),
+                                              "narrows": q.get("narrows") if q.get("narrows") in ("likely", "unlikely") else "likely"}
+                                             for i, q in enumerate(qs)]
                 session.pending_tool_use = block.id
                 session.pending_kind = "questions"
                 step = {"kind": "questions", "text": f"Asked {len(qs)} question{'s' if len(qs) != 1 else ''} "
@@ -612,6 +627,8 @@ def run(session: Session, user_text: str, emit: Emit, client=None, answers: list
                 session.trace.append(step)
                 emit({"type": "step", **step})
                 return {"type": "questions", "session_id": session.id, "intro": block.input.get("intro", ""),
+                        "likely_causes": block.input.get("likely_causes") or [],
+                        "unlikely_causes": block.input.get("unlikely_causes") or [],
                         "questions": session.pending_questions, "used_before": len(session.qa),
                         "limit": session.question_limit, "trace": session.trace}
 

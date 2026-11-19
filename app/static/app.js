@@ -398,14 +398,11 @@ function renderQuestions(ev) {
   const card = document.createElement("div");
   card.className = "card qcard active";
   card.innerHTML = `
-    <div class="q-head"><span class="q-title">Questions</span>
-      <span class="q-count">${first === last ? first : first + "–" + last} of up to ${ev.limit}</span></div>
+    <div class="q-head"><span class="q-title">Narrowing it down</span>
+      <span class="q-count">Questions ${first === last ? first : first + "–" + last} of up to ${ev.limit}</span></div>
     ${ev.intro ? `<p class="q-intro">${esc(ev.intro)}</p>` : ""}
-    ${ev.questions.map((q) => `<fieldset class="q" data-id="${esc(q.id)}">
-        <legend><span class="q-no">${esc(q.id.slice(1))}</span>${esc(q.question)}</legend>
-        ${q.how_to_check ? `<div class="q-how"><b>How to check:</b> ${esc(q.how_to_check)}</div>` : ""}
-        <div class="q-opts">${ANSWERS.map(([v, label]) => `<label class="tick ${v}"><input type="radio" name="${esc(q.id)}" value="${v}"><span class="box"></span>${label}</label>`).join("")}</div>
-      </fieldset>`).join("")}
+    ${questionGroup("likely", "The likely causes could be:", ev.likely_causes, ev.questions)}
+    ${questionGroup("unlikely", "The unlikely causes could be:", ev.unlikely_causes, ev.questions)}
     <div class="q-actions"><button type="button" class="ghost" data-a="unsure">Mark unanswered as Unsure</button>
       <button type="button" class="primary big" data-a="send" disabled>Send answers</button></div>`;
   el.prepend(card);
@@ -425,6 +422,24 @@ function renderQuestions(ev) {
     runDiagnosis(null, { answers });
   });
   card.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function questionField(q) {
+  return `<fieldset class="q" data-id="${esc(q.id)}">
+    <legend><span class="q-no">${esc(q.id.slice(1))}</span>${esc(q.question)}</legend>
+    ${q.how_to_check ? `<div class="q-how"><b>How to check:</b> ${esc(q.how_to_check)}</div>` : ""}
+    <div class="q-opts">${ANSWERS.map(([v, label]) => `<label class="tick ${v}"><input type="radio" name="${esc(q.id)}" value="${v}"><span class="box"></span>${label}</label>`).join("")}</div>
+  </fieldset>`;
+}
+
+function questionGroup(kind, heading, causes, questions) {
+  const qs = questions.filter((q) => (q.narrows || "likely") === kind);
+  if (!(causes || []).length && !qs.length) return "";
+  return `<section class="q-group ${kind}">
+    <h3>${heading}</h3>
+    ${(causes || []).length ? `<ul class="q-causes">${causes.map((c) => `<li><b>${esc(c.cause)}</b>${c.reason ? ` <span>${esc(c.reason)}</span>` : ""}</li>`).join("")}</ul>` : ""}
+    ${qs.length ? `<div class="q-ask">Answer these questions to narrow it down:</div>${qs.map(questionField).join("")}` : ""}
+  </section>`;
 }
 
 function answersCard(r) {

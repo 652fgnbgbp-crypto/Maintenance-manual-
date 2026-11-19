@@ -36,6 +36,7 @@ AeroQuiz platform (Part 66 exam practice).
 | Owner access | The owner's login (platform admin) can **read every organisation's Fix Log**, read-only, and the owner's **diagnoses draw on every operator's Fix Log**, each fix tagged with operator and aircraft type. Those diagnoses are hidden from everyone else, including other users in the owner's organisation. Manuals are **never** shared across organisations, not even with the owner. |
 | Manuals | Vantage is a tool. Customers upload their own manuals and keep them current. Torwood does not supply manuals. |
 | Questions | Diagnosis narrows the fault by elimination with **Yes / No / Unsure tick-box questions**. **Hard limit 15 per diagnosis**, asked in batches of up to 5, enforced by the server. When the limit is reached, the technician can press **Ask 5 more questions**, repeatable in steps of 5. Answers and a **Ruled out** list appear on the diagnosis. |
+| Wording | No first-person narration ("I'm checking…"); findings stated directly. The progress view shows only factual research steps; the AI's working notes are hidden (thinking display "omitted"). Questions are laid out as **"The likely causes could be:"** + questions, then **"The unlikely causes could be:"** + questions. |
 | Platform | iPad first. Hosted online for customers (Docker image). Also runs locally from a desktop icon (`launcher.py`). |
 
 ## 3. How it works

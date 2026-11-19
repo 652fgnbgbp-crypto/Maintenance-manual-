@@ -322,3 +322,12 @@ ul.ruled s { font-weight: 650; color: var(--muted); }
 ul.ruled span { font-size: 14.5px; }
 .more-q { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; border: 2px solid var(--gold); }
 @media (max-width: 560px) { .q-opts, .q-how { padding-left: 0; } }
+
+.q-group { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 10px; }
+.q-group h3 { font: 750 16.5px/1.3 var(--font-display); margin: 2px 0 8px; }
+.q-group.likely h3 { color: var(--danger); }
+.q-group.unlikely h3 { color: var(--muted); }
+ul.q-causes { margin: 0 0 10px; padding-left: 20px; }
+ul.q-causes li { margin: 4px 0; }
+ul.q-causes span { color: var(--muted); font-size: 14.5px; }
+.q-ask { font-weight: 650; color: var(--resolved-ink); margin: 6px 0 2px; }
