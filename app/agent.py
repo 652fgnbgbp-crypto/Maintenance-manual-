@@ -174,7 +174,7 @@ TOOLS = [
             "required": ["intro", "likely_causes", "unlikely_causes", "questions"],
             "additionalProperties": False,
         },
-        "strict": True,
+        "strict": False,  # too large for strict grammar; checked by check_questions() / check_diagnosis()
     },
     {
         "name": "submit_diagnosis",
@@ -295,7 +295,7 @@ TOOLS = [
                          "more_questions_would_help", "safety_notes", "missing_info"],
             "additionalProperties": False,
         },
-        "strict": True,
+        "strict": False,  # too large for strict grammar; checked by check_questions() / check_diagnosis()
     },
 ]
 
@@ -385,6 +385,99 @@ def tool_locate(inp: dict, org_id: int) -> str:
             "positions": [f"x={b['x']:.2f}, y={b['y']:.2f}" for b in boxes[:5]],
         }
     return json.dumps(out)
+
+
+# ------------------------------------------------------------------ input checks for non-strict tools
+
+_DIAG_LISTS = ("probable_causes", "troubleshooting_steps", "references", "previous_fixes", "eliminated",
+               "safety_notes", "missing_info")
+_DIAG_TEXT = ("summary", "system", "confidence", "effectivity_note", "reasoning")
+
+
+def _as_int(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def check_diagnosis(d) -> tuple[dict | None, str]:
+    """Normalise a submit_diagnosis input. Returns (clean, "") or (None, problem to report back)."""
+    if not isinstance(d, dict):
+        return None, "The diagnosis must be a JSON object."
+    missing = [k for k in ("summary", "system", "probable_causes") if not d.get(k)]
+    if missing:
+        return None, "Missing required fields: " + ", ".join(missing) + ". Submit the complete diagnosis again."
+    out = dict(d)
+    for k in _DIAG_TEXT:
+        out[k] = str(out.get(k) or "")
+    if out["confidence"] not in ("high", "medium", "low"):
+        out["confidence"] = "medium"
+    for k in _DIAG_LISTS:
+        v = out.get(k)
+        out[k] = v if isinstance(v, list) else []
+    out["more_questions_would_help"] = bool(out.get("more_questions_would_help"))
+    causes = []
+    for i, c in enumerate(out["probable_causes"], start=1):
+        if not isinstance(c, dict) or not c.get("cause"):
+            continue
+        causes.append({"rank": _as_int(c.get("rank")) or i, "cause": str(c["cause"]),
+                       "likelihood": c.get("likelihood") if c.get("likelihood") in ("high", "medium", "low") else "medium",
+                       "reasoning": str(c.get("reasoning") or ""),
+                       "previous_fix_ids": [x for x in (_as_int(i) for i in c.get("previous_fix_ids") or []) if x]})
+    if not causes:
+        return None, "probable_causes must list at least one cause with a 'cause' field."
+    out["probable_causes"] = causes
+    out["troubleshooting_steps"] = [
+        {"step": _as_int(t.get("step")) or n, "action": str(t.get("action") or ""), "expected": str(t.get("expected") or ""),
+         "if_abnormal": str(t.get("if_abnormal") or ""),
+         "cause_ranks": [x for x in (_as_int(r) for r in t.get("cause_ranks") or []) if x]}
+        for n, t in enumerate(out["troubleshooting_steps"], start=1) if isinstance(t, dict) and t.get("action")]
+    refs = []
+    for r in out["references"]:
+        if not isinstance(r, dict) or _as_int(r.get("doc_id")) is None or _as_int(r.get("page")) is None:
+            continue
+        hls = [{"term": str(h["term"]), "note": str(h.get("note") or ""), "cause_rank": _as_int(h.get("cause_rank")) or 0}
+               for h in r.get("highlights") or [] if isinstance(h, dict) and h.get("term")]
+        regs = []
+        for g in r.get("regions") or []:
+            try:
+                regs.append({"x": float(g["x"]), "y": float(g["y"]), "w": float(g["w"]), "h": float(g["h"]),
+                             "note": str(g.get("note") or ""), "cause_rank": _as_int(g.get("cause_rank")) or 0})
+            except (KeyError, TypeError, ValueError):
+                continue
+        refs.append({"doc_id": _as_int(r["doc_id"]), "page": _as_int(r["page"]), "why": str(r.get("why") or ""),
+                     "highlights": hls, "regions": regs})
+    out["references"] = refs
+    out["previous_fixes"] = [
+        {"note_id": _as_int(f.get("note_id")), "match": f.get("match") if f.get("match") in ("strong", "partial") else "partial",
+         "relevance": str(f.get("relevance") or "")}
+        for f in out["previous_fixes"] if isinstance(f, dict) and _as_int(f.get("note_id"))]
+    out["eliminated"] = [{"cause": str(e.get("cause")), "because": str(e.get("because") or "")}
+                         for e in out["eliminated"] if isinstance(e, dict) and e.get("cause")]
+    out["safety_notes"] = [str(x) for x in out["safety_notes"] if x]
+    out["missing_info"] = [str(x) for x in out["missing_info"] if x]
+    return out, ""
+
+
+def check_questions(d) -> tuple[dict | None, str]:
+    """Normalise an ask_questions input."""
+    if not isinstance(d, dict):
+        return None, "The input must be a JSON object."
+    qs = [q for q in d.get("questions") or [] if isinstance(q, dict) and str(q.get("question") or "").strip()]
+    if not qs:
+        return None, "questions must contain at least one item with a 'question' field."
+
+    def causes(key):
+        return [{"cause": str(c["cause"]), "reason": str(c.get("reason") or "")}
+                for c in d.get(key) or [] if isinstance(c, dict) and c.get("cause")]
+
+    return {"intro": str(d.get("intro") or ""), "likely_causes": causes("likely_causes"),
+            "unlikely_causes": causes("unlikely_causes"),
+            "questions": [{"question": str(q["question"]).strip(), "why": str(q.get("why") or ""),
+                           "how_to_check": str(q.get("how_to_check") or ""),
+                           "narrows": q.get("narrows") if q.get("narrows") in ("likely", "unlikely") else "likely"}
+                          for q in qs]}, ""
 
 
 # ------------------------------------------------------------------ result post-processing
@@ -601,6 +694,11 @@ def run(session: Session, user_text: str, emit: Emit, client=None, answers: list
 
             if len(tool_uses) == 1 and tool_uses[0].name == "ask_questions":
                 block = tool_uses[0]
+                clean, problem = check_questions(block.input)
+                if clean is None:
+                    session.messages.append({"role": "user", "content": [{
+                        "type": "tool_result", "tool_use_id": block.id, "is_error": True, "content": problem}]})
+                    continue
                 remaining = session.question_limit - len(session.qa)
                 if remaining <= 0:
                     session.messages.append({"role": "user", "content": [{
@@ -609,7 +707,7 @@ def run(session: Session, user_text: str, emit: Emit, client=None, answers: list
                                    "what you have; set more_questions_would_help if more answers would materially "
                                    "narrow it."}]})
                     continue
-                qs = (block.input.get("questions") or [])[:min(remaining, config.QUESTIONS_PER_BATCH)]
+                qs = clean["questions"][:min(remaining, config.QUESTIONS_PER_BATCH)]
                 if not qs:
                     session.messages.append({"role": "user", "content": [{
                         "type": "tool_result", "tool_use_id": block.id, "is_error": True,
@@ -626,15 +724,19 @@ def run(session: Session, user_text: str, emit: Emit, client=None, answers: list
                                                      f"({start_no}–{start_no + len(qs) - 1} of up to {session.question_limit})"}
                 session.trace.append(step)
                 emit({"type": "step", **step})
-                return {"type": "questions", "session_id": session.id, "intro": block.input.get("intro", ""),
-                        "likely_causes": block.input.get("likely_causes") or [],
-                        "unlikely_causes": block.input.get("unlikely_causes") or [],
+                return {"type": "questions", "session_id": session.id, "intro": clean["intro"],
+                        "likely_causes": clean["likely_causes"], "unlikely_causes": clean["unlikely_causes"],
                         "questions": session.pending_questions, "used_before": len(session.qa),
                         "limit": session.question_limit, "trace": session.trace}
 
             submit = next((b for b in tool_uses if b.name == "submit_diagnosis"), None)
             if submit is not None and len(tool_uses) == 1:
-                result = build_result(submit.input, session.viewed, session.org_id, session.seen_notes,
+                clean, problem = check_diagnosis(submit.input)
+                if clean is None:
+                    session.messages.append({"role": "user", "content": [{
+                        "type": "tool_result", "tool_use_id": submit.id, "is_error": True, "content": problem}]})
+                    continue
+                result = build_result(clean, session.viewed, session.org_id, session.seen_notes,
                                       all_orgs=session.all_fixes)
                 result["answers"] = list(session.qa)
                 result["questions_used"] = len(session.qa)

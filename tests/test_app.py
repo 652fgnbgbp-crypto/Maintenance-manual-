@@ -430,3 +430,36 @@ def test_diagnose_stream_reports_done(app_env, monkeypatch):
         assert events[-1]["type"] == "done" and events[-1]["kind"] == "questions"
         assert c.post("/api/diagnose", json={"question": ""}).status_code == 400
         assert c.post("/api/diagnose", json={"answers": [{"id": "q1", "answer": "yes"}]}).status_code == 200
+
+
+def test_large_tools_not_strict_and_checked_in_code(app_env):
+    """The two large tool schemas are too big for strict mode; their input is validated in code instead."""
+    from app import agent
+    strict = {t["name"]: t["strict"] for t in agent.TOOLS}
+    assert strict["submit_diagnosis"] is False and strict["ask_questions"] is False
+    assert strict["search_library"] is True
+
+    bad, problem = agent.check_diagnosis({"system": "x"})
+    assert bad is None and "summary" in problem and "probable_causes" in problem
+    good, _ = agent.check_diagnosis({
+        "summary": "s", "system": "x", "confidence": "very",
+        "probable_causes": [{"cause": "K45 coil", "rank": "1", "previous_fix_ids": ["3", "x"]}, {"rank": 2}],
+        "references": [{"doc_id": "1", "page": 2, "highlights": [{"term": "K45"}, {"note": "no term"}],
+                        "regions": [{"x": 0.1, "y": 0.2, "w": 0.1, "h": "0.1"}, {"x": "bad"}]}, {"page": 1}],
+        "troubleshooting_steps": "not a list"})
+    assert good["confidence"] == "medium" and good["troubleshooting_steps"] == [] and good["eliminated"] == []
+    assert good["probable_causes"] == [{"rank": 1, "cause": "K45 coil", "likelihood": "medium", "reasoning": "",
+                                        "previous_fix_ids": [3]}]
+    ref = good["references"]
+    assert len(ref) == 1 and ref[0]["doc_id"] == 1 and [h["term"] for h in ref[0]["highlights"]] == ["K45"]
+    assert len(ref[0]["regions"]) == 1 and ref[0]["regions"][0]["h"] == 0.1
+
+    # a malformed submission is sent back to the model to fix, not shown to the technician
+    client = FakeClient([
+        [_tool_use("s1", "submit_diagnosis", {"system": "x"})],
+        [_tool_use("s2", "submit_diagnosis", {"summary": "ok", "system": "x", "probable_causes": [{"cause": "c"}]})],
+    ])
+    out = agent.run(agent.get_or_create_session(None, ""), "problem", lambda e: None, client=client)
+    assert out["type"] == "diagnosis" and out["result"]["summary"] == "ok"
+    err = client.requests[1]["messages"][-1]["content"][0]
+    assert err["tool_use_id"] == "s1" and err["is_error"] and "Missing required fields" in err["content"]
