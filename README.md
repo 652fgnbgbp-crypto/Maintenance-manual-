@@ -111,6 +111,10 @@ See **START HERE.txt**. In short: install Python 3.10 or newer, run the "Install
 file for your system once, then double-click the Vantage icon. `launcher.py` sets everything up
 on first start, asks for the API key (saved in `settings.env`) and opens the browser.
 
+**On an iPad over Wi-Fi:** add a sign-in on the Organisation page, set `SHARE_ON_NETWORK=yes` in
+`settings.env` and restart. The launcher then prints the address to open in Safari. It refuses to
+share until a sign-in exists, so the library is never open to the whole network.
+
 ## Setup (local, manual)
 
 Requires Python 3.10+.

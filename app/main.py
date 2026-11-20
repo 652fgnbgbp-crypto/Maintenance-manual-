@@ -43,7 +43,7 @@ STATIC = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 # Paths reachable without signing in: the sign-in page and what it (and the home-screen icon) needs.
-PUBLIC = ("/login", "/api/login", "/static/", "/manifest.webmanifest", "/favicon.ico")
+PUBLIC = ("/login", "/api/login", "/api/health", "/static/", "/manifest.webmanifest", "/favicon.ico")
 
 
 @app.middleware("http")
@@ -59,6 +59,12 @@ async def require_login(request: Request, call_next):
     if path.startswith("/api/"):
         return JSONResponse({"detail": "Please sign in."}, status_code=401)
     return RedirectResponse("/login")
+
+
+@app.get("/api/health")
+def health():
+    """Public liveness check (used by the desktop launcher); reveals nothing about the library."""
+    return {"app": "vantage", "ok": True}
 
 
 @app.get("/login")

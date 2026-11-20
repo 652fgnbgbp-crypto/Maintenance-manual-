@@ -50,6 +50,21 @@ On your own computer Vantage runs without sign-in. Sign-in, teams and subscriber
 it is hosted online: see README.md, "Hosting online".
 
 
+USING VANTAGE ON AN iPAD (same Wi-Fi as this computer)
+------------------------------------------------------
+  1. In Vantage, open Organisation and add yourself under Team, with Administrator ticked.
+     From then on Vantage asks for that email and password.
+  2. Open settings.env in Notepad and set:   SHARE_ON_NETWORK=yes
+     Save it, close the black Vantage window, and start Vantage again.
+  3. The black window shows an address such as  http://192.168.1.20:8765
+     If Windows asks whether to allow Python on the network, allow it on Private networks.
+  4. On the iPad (same Wi-Fi), open Safari, type that address, and sign in.
+     Tap Share > Add to Home Screen to get a Vantage icon.
+  This computer must be on, with Vantage running, whenever the iPad uses it.
+  Company networks and guest Wi-Fi often block this; if so, ask IT, or host Vantage online
+  (see README.md, "Hosting online").
+
+
 WHERE YOUR DATA IS KEPT
 -----------------------
 Everything you add is stored in the "data" folder created here: the database, uploaded files

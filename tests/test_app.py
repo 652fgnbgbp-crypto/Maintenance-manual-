@@ -230,6 +230,7 @@ def test_sign_in(app_env, monkeypatch):
         auth.add_user("tech@example.com", "correct horse", name="Tech")
         c.cookies.clear()
         assert c.get("/api/info").status_code == 401
+        assert c.get("/api/health").json() == {"app": "vantage", "ok": True}
         assert c.get("/", follow_redirects=False).headers["location"] == "/login"
         assert c.get("/login").status_code == 200
         assert c.get("/static/theme.css").status_code == 200

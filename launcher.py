@@ -32,6 +32,10 @@ MX_AIRCRAFT_TYPE=
 
 # Where the library (database, uploaded manuals, page images) is kept. Blank = the "data" folder here.
 MX_DATA_DIR=
+
+# Let iPads and other devices on the same Wi-Fi open Vantage: set to yes.
+# For safety this only takes effect once a sign-in exists (add one on the Organisation page).
+SHARE_ON_NETWORK=
 """
 
 
@@ -98,8 +102,8 @@ def ask_for_key(values: dict) -> None:
 
 def vantage_running(port: int) -> bool:
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/info", timeout=1.5) as r:
-            return "aircraft_type" in json.loads(r.read() or b"{}")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=1.5) as r:
+            return json.loads(r.read() or b"{}").get("app") == "vantage"
     except Exception:
         return False
 
@@ -107,6 +111,33 @@ def vantage_running(port: int) -> bool:
 def port_free(port: int) -> bool:
     with socket.socket() as s:
         return s.connect_ex(("127.0.0.1", port)) != 0
+
+
+def users_exist(data_dir: Path) -> bool:
+    """True if at least one sign-in has been created (so the app will require a password)."""
+    import sqlite3
+    db = data_dir / "library.db"
+    if not db.exists():
+        return False
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            return con.execute("SELECT COUNT(*) FROM users").fetchone()[0] > 0
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return False
+
+
+def network_address() -> str | None:
+    """This computer's address on the local network (no traffic is sent)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            ip = s.getsockname()[0]
+        return None if ip.startswith("127.") else ip
+    except OSError:
+        return None
 
 
 def main() -> None:
@@ -130,10 +161,23 @@ def main() -> None:
     env = dict(os.environ)
     env.update({k: v for k, v in values.items() if v})
     env.setdefault("MX_DATA_DIR", str(HOME / "data"))
+    data_dir = Path(env["MX_DATA_DIR"])
+    if not data_dir.is_absolute():
+        data_dir = HOME / data_dir
+
+    host, share_url = "127.0.0.1", None
+    if values.get("SHARE_ON_NETWORK", "").strip().lower() in ("yes", "y", "true", "1", "on"):
+        if not users_exist(data_dir):
+            say("\nSHARE_ON_NETWORK is on, but no sign-in exists yet, so Vantage is NOT shared on the network.\n"
+                "Open the Organisation page, add yourself under Team (tick Administrator), then restart Vantage.")
+        else:
+            host = "0.0.0.0"
+            ip = network_address()
+            share_url = f"http://{ip}:{port}" if ip else None
 
     say(f"\nStarting Vantage at http://localhost:{port}")
     server = subprocess.Popen(
-        [str(venv_python()), "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port),
+        [str(venv_python()), "-m", "uvicorn", "app.main:app", "--host", host, "--port", str(port),
          "--log-level", "warning"],
         cwd=HOME, env=env)
     for _ in range(120):
@@ -149,6 +193,10 @@ def main() -> None:
     if not no_browser:
         webbrowser.open(f"http://localhost:{port}")
     say("Vantage is running. Keep this window open while you use it; close it to stop Vantage.")
+    if host == "0.0.0.0":
+        say("\nShared on the network. On an iPad connected to the same Wi-Fi, open Safari and go to:\n"
+            f"    {share_url or f'http://<this computer address>:{port}'}\n"
+            "If Windows asks whether to allow access for Python, allow it on Private networks.")
     try:
         server.wait()
     except KeyboardInterrupt:
